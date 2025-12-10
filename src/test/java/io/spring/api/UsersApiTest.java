@@ -1,13 +1,10 @@
 package io.spring.api;
 
-import static io.restassured.module.mockmvc.RestAssuredMockMvc.given;
-import static org.hamcrest.core.IsEqual.equalTo;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import io.restassured.module.mockmvc.RestAssuredMockMvc;
 import io.spring.JacksonCustomizations;
 import io.spring.api.security.WebSecurityConfig;
 import io.spring.application.UserQueryService;
@@ -23,14 +20,15 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.reactive.server.WebTestClient;
 
-@WebMvcTest(UsersApi.class)
+@WebFluxTest(UsersApi.class)
 @Import({
   WebSecurityConfig.class,
   UserQueryService.class,
@@ -38,7 +36,7 @@ import org.springframework.test.web.servlet.MockMvc;
   JacksonCustomizations.class
 })
 public class UsersApiTest {
-  @Autowired private MockMvc mvc;
+  @Autowired private WebTestClient client;
 
   @MockBean private UserRepository userRepository;
 
@@ -54,7 +52,6 @@ public class UsersApiTest {
 
   @BeforeEach
   public void setUp() throws Exception {
-    RestAssuredMockMvc.mockMvc(mvc);
     defaultAvatar = "https://static.productionready.io/images/smiley-cyrus.jpg";
   }
 
@@ -75,18 +72,25 @@ public class UsersApiTest {
 
     Map<String, Object> param = prepareRegisterParameter(email, username);
 
-    given()
-        .contentType("application/json")
-        .body(param)
-        .when()
-        .post("/users")
-        .then()
-        .statusCode(201)
-        .body("user.email", equalTo(email))
-        .body("user.username", equalTo(username))
-        .body("user.bio", equalTo(""))
-        .body("user.image", equalTo(defaultAvatar))
-        .body("user.token", equalTo("123"));
+    client
+        .post()
+        .uri("/users")
+        .contentType(MediaType.APPLICATION_JSON)
+        .bodyValue(param)
+        .exchange()
+        .expectStatus()
+        .isCreated()
+        .expectBody()
+        .jsonPath("$.user.email")
+        .isEqualTo(email)
+        .jsonPath("$.user.username")
+        .isEqualTo(username)
+        .jsonPath("$.user.bio")
+        .isEqualTo("")
+        .jsonPath("$.user.image")
+        .isEqualTo(defaultAvatar)
+        .jsonPath("$.user.token")
+        .isEqualTo("123");
 
     verify(userService).createUser(any());
   }
@@ -99,15 +103,17 @@ public class UsersApiTest {
 
     Map<String, Object> param = prepareRegisterParameter(email, username);
 
-    given()
-        .contentType("application/json")
-        .body(param)
-        .when()
-        .post("/users")
-        .prettyPeek()
-        .then()
-        .statusCode(422)
-        .body("errors.username[0]", equalTo("can't be empty"));
+    client
+        .post()
+        .uri("/users")
+        .contentType(MediaType.APPLICATION_JSON)
+        .bodyValue(param)
+        .exchange()
+        .expectStatus()
+        .isEqualTo(422)
+        .expectBody()
+        .jsonPath("$.errors.username[0]")
+        .isEqualTo("can't be empty");
   }
 
   @Test
@@ -117,15 +123,17 @@ public class UsersApiTest {
 
     Map<String, Object> param = prepareRegisterParameter(email, username);
 
-    given()
-        .contentType("application/json")
-        .body(param)
-        .when()
-        .post("/users")
-        .prettyPeek()
-        .then()
-        .statusCode(422)
-        .body("errors.email[0]", equalTo("should be an email"));
+    client
+        .post()
+        .uri("/users")
+        .contentType(MediaType.APPLICATION_JSON)
+        .bodyValue(param)
+        .exchange()
+        .expectStatus()
+        .isEqualTo(422)
+        .expectBody()
+        .jsonPath("$.errors.email[0]")
+        .isEqualTo("should be an email");
   }
 
   @Test
@@ -139,15 +147,17 @@ public class UsersApiTest {
 
     Map<String, Object> param = prepareRegisterParameter(email, username);
 
-    given()
-        .contentType("application/json")
-        .body(param)
-        .when()
-        .post("/users")
-        .prettyPeek()
-        .then()
-        .statusCode(422)
-        .body("errors.username[0]", equalTo("duplicated username"));
+    client
+        .post()
+        .uri("/users")
+        .contentType(MediaType.APPLICATION_JSON)
+        .bodyValue(param)
+        .exchange()
+        .expectStatus()
+        .isEqualTo(422)
+        .expectBody()
+        .jsonPath("$.errors.username[0]")
+        .isEqualTo("duplicated username");
   }
 
   @Test
@@ -162,31 +172,29 @@ public class UsersApiTest {
 
     Map<String, Object> param = prepareRegisterParameter(email, username);
 
-    given()
-        .contentType("application/json")
-        .body(param)
-        .when()
-        .post("/users")
-        .then()
-        .statusCode(422)
-        .body("errors.email[0]", equalTo("duplicated email"));
+    client
+        .post()
+        .uri("/users")
+        .contentType(MediaType.APPLICATION_JSON)
+        .bodyValue(param)
+        .exchange()
+        .expectStatus()
+        .isEqualTo(422)
+        .expectBody()
+        .jsonPath("$.errors.email[0]")
+        .isEqualTo("duplicated email");
   }
 
   private HashMap<String, Object> prepareRegisterParameter(
       final String email, final String username) {
-    return new HashMap<String, Object>() {
-      {
-        put(
-            "user",
-            new HashMap<String, Object>() {
-              {
-                put("email", email);
-                put("password", "johnnyjacob");
-                put("username", username);
-              }
-            });
-      }
-    };
+    Map<String, Object> userMap = new HashMap<>();
+    userMap.put("email", email);
+    userMap.put("password", "johnnyjacob");
+    userMap.put("username", username);
+
+    Map<String, Object> param = new HashMap<>();
+    param.put("user", userMap);
+    return (HashMap<String, Object>) param;
   }
 
   @Test
@@ -203,33 +211,32 @@ public class UsersApiTest {
     when(userReadService.findById(eq(user.getId()))).thenReturn(userData);
     when(jwtService.toToken(any())).thenReturn("123");
 
-    Map<String, Object> param =
-        new HashMap<String, Object>() {
-          {
-            put(
-                "user",
-                new HashMap<String, Object>() {
-                  {
-                    put("email", email);
-                    put("password", password);
-                  }
-                });
-          }
-        };
+    Map<String, Object> userMap = new HashMap<>();
+    userMap.put("email", email);
+    userMap.put("password", password);
 
-    given()
-        .contentType("application/json")
-        .body(param)
-        .when()
-        .post("/users/login")
-        .then()
-        .statusCode(200)
-        .body("user.email", equalTo(email))
-        .body("user.username", equalTo(username))
-        .body("user.bio", equalTo(""))
-        .body("user.image", equalTo(defaultAvatar))
-        .body("user.token", equalTo("123"));
-    ;
+    Map<String, Object> param = new HashMap<>();
+    param.put("user", userMap);
+
+    client
+        .post()
+        .uri("/users/login")
+        .contentType(MediaType.APPLICATION_JSON)
+        .bodyValue(param)
+        .exchange()
+        .expectStatus()
+        .isOk()
+        .expectBody()
+        .jsonPath("$.user.email")
+        .isEqualTo(email)
+        .jsonPath("$.user.username")
+        .isEqualTo(username)
+        .jsonPath("$.user.bio")
+        .isEqualTo("")
+        .jsonPath("$.user.image")
+        .isEqualTo(defaultAvatar)
+        .jsonPath("$.user.token")
+        .isEqualTo("123");
   }
 
   @Test
@@ -244,28 +251,23 @@ public class UsersApiTest {
     when(userRepository.findByEmail(eq(email))).thenReturn(Optional.of(user));
     when(userReadService.findByUsername(eq(username))).thenReturn(userData);
 
-    Map<String, Object> param =
-        new HashMap<String, Object>() {
-          {
-            put(
-                "user",
-                new HashMap<String, Object>() {
-                  {
-                    put("email", email);
-                    put("password", "123123");
-                  }
-                });
-          }
-        };
+    Map<String, Object> userMap = new HashMap<>();
+    userMap.put("email", email);
+    userMap.put("password", "123123");
 
-    given()
-        .contentType("application/json")
-        .body(param)
-        .when()
-        .post("/users/login")
-        .prettyPeek()
-        .then()
-        .statusCode(422)
-        .body("message", equalTo("invalid email or password"));
+    Map<String, Object> param = new HashMap<>();
+    param.put("user", userMap);
+
+    client
+        .post()
+        .uri("/users/login")
+        .contentType(MediaType.APPLICATION_JSON)
+        .bodyValue(param)
+        .exchange()
+        .expectStatus()
+        .isEqualTo(422)
+        .expectBody()
+        .jsonPath("$.message")
+        .isEqualTo("invalid email or password");
   }
 }

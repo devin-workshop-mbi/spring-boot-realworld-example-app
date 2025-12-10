@@ -6,25 +6,25 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
-import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
+import org.springframework.security.config.web.server.SecurityWebFiltersOrder;
+import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.web.authentication.HttpStatusEntryPoint;
-import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.web.cors.CorsConfigurationSource;
-import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.web.cors.reactive.CorsConfigurationSource;
+import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
+import reactor.core.publisher.Mono;
 
 @Configuration
-@EnableWebSecurity
-public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
+@EnableWebFluxSecurity
+public class WebSecurityConfig {
 
-  @Bean
-  public JwtTokenFilter jwtTokenFilter() {
-    return new JwtTokenFilter();
+  private final JwtTokenFilter jwtTokenFilter;
+
+  public WebSecurityConfig(JwtTokenFilter jwtTokenFilter) {
+    this.jwtTokenFilter = jwtTokenFilter;
   }
 
   @Bean
@@ -32,36 +32,38 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
     return new BCryptPasswordEncoder();
   }
 
-  @Override
-  protected void configure(HttpSecurity http) throws Exception {
-
-    http.csrf()
+  @Bean
+  public SecurityWebFilterChain securityWebFilterChain(ServerHttpSecurity http) {
+    return http.csrf()
         .disable()
         .cors()
+        .configurationSource(corsConfigurationSource())
         .and()
         .exceptionHandling()
-        .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))
+        .authenticationEntryPoint(
+            (exchange, ex) -> {
+              exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
+              return Mono.empty();
+            })
         .and()
-        .sessionManagement()
-        .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
-        .and()
-        .authorizeRequests()
-        .antMatchers(HttpMethod.OPTIONS)
+        .authorizeExchange()
+        .pathMatchers(HttpMethod.OPTIONS)
         .permitAll()
-        .antMatchers("/graphiql")
+        .pathMatchers("/graphiql")
         .permitAll()
-        .antMatchers("/graphql")
+        .pathMatchers("/graphql")
         .permitAll()
-        .antMatchers(HttpMethod.GET, "/articles/feed")
+        .pathMatchers(HttpMethod.GET, "/articles/feed")
         .authenticated()
-        .antMatchers(HttpMethod.POST, "/users", "/users/login")
+        .pathMatchers(HttpMethod.POST, "/users", "/users/login")
         .permitAll()
-        .antMatchers(HttpMethod.GET, "/articles/**", "/profiles/**", "/tags")
+        .pathMatchers(HttpMethod.GET, "/articles/**", "/profiles/**", "/tags")
         .permitAll()
-        .anyRequest()
-        .authenticated();
-
-    http.addFilterBefore(jwtTokenFilter(), UsernamePasswordAuthenticationFilter.class);
+        .anyExchange()
+        .authenticated()
+        .and()
+        .addFilterAt(jwtTokenFilter, SecurityWebFiltersOrder.AUTHENTICATION)
+        .build();
   }
 
   @Bean
@@ -69,12 +71,7 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
     final CorsConfiguration configuration = new CorsConfiguration();
     configuration.setAllowedOrigins(asList("*"));
     configuration.setAllowedMethods(asList("HEAD", "GET", "POST", "PUT", "DELETE", "PATCH"));
-    // setAllowCredentials(true) is important, otherwise:
-    // The value of the 'Access-Control-Allow-Origin' header in the response must not be the
-    // wildcard '*' when the request's credentials mode is 'include'.
     configuration.setAllowCredentials(false);
-    // setAllowedHeaders is important! Without it, OPTIONS preflight request
-    // will fail with 403 Invalid CORS request
     configuration.setAllowedHeaders(asList("Authorization", "Cache-Control", "Content-Type"));
     final UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
     source.registerCorsConfiguration("/**", configuration);
