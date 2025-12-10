@@ -44,7 +44,7 @@ It uses a ~~H2 in-memory database~~ sqlite database (for easy local test without
 
 # Getting started
 
-You'll need Java 11 installed.
+You'll need Java 17 installed.
 
     ./gradlew bootRun
 
@@ -52,6 +52,18 @@ To test that it works, open a browser tab at http://localhost:8080/tags .
 Alternatively, you can run
 
     curl http://localhost:8080/tags
+
+# Build Configuration
+
+This project uses the following build configuration:
+
+- **Java Version**: Java 17 (both `sourceCompatibility` and `targetCompatibility` set to '17')
+- **Build System**: Gradle (with wrapper scripts `gradlew` and `gradlew.bat` included)
+- **Key Gradle Plugins**:
+  - Spring Boot plugin (version 2.6.3)
+  - Java plugin
+  - Netflix DGS codegen plugin (version 5.0.6) for GraphQL code generation
+  - Spotless plugin (version 6.2.1) for code formatting
 
 # Try it out with [Docker](https://www.docker.com/)
 
