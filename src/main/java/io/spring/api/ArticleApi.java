@@ -75,17 +75,12 @@ public class ArticleApi {
       @PathVariable("slug") String slug, @AuthenticationPrincipal User user) {
     return Mono.<Void>fromCallable(
             () -> {
-              articleRepository
-                  .findBySlug(slug)
-                  .map(
-                      article -> {
-                        if (!AuthorizationService.canWriteArticle(user, article)) {
-                          throw new NoAuthorizationException();
-                        }
-                        articleRepository.remove(article);
-                        return null;
-                      })
-                  .orElseThrow(ResourceNotFoundException::new);
+              var article =
+                  articleRepository.findBySlug(slug).orElseThrow(ResourceNotFoundException::new);
+              if (!AuthorizationService.canWriteArticle(user, article)) {
+                throw new NoAuthorizationException();
+              }
+              articleRepository.remove(article);
               return null;
             })
         .subscribeOn(Schedulers.boundedElastic());
