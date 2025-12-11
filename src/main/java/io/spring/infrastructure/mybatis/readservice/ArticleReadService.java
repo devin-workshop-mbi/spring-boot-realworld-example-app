@@ -40,7 +40,7 @@ public interface ArticleReadService {
       @Param("favoritedBy") String favoritedBy,
       @Param("page") CursorPageParameter page);
 
-  List<String> queryTopArticles(@Param("page") Page page);
+  List<ArticleData> findTopArticles(@Param("page") Page page);
 
   int countAllArticles();
 }

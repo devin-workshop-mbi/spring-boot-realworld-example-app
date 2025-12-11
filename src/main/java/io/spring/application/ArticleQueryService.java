@@ -130,12 +130,11 @@ public class ArticleQueryService {
    * @return ArticleDataList containing top articles and total count
    */
   public ArticleDataList findTopArticles(Page page, User currentUser) {
-    List<String> articleIds = articleReadService.queryTopArticles(page);
+    List<ArticleData> articles = articleReadService.findTopArticles(page);
     int articleCount = articleReadService.countAllArticles();
-    if (articleIds.size() == 0) {
+    if (articles.size() == 0) {
       return new ArticleDataList(new ArrayList<>(), articleCount);
     } else {
-      List<ArticleData> articles = articleReadService.findArticles(articleIds);
       fillExtraInfo(articles, currentUser);
       return new ArticleDataList(articles, articleCount);
     }
