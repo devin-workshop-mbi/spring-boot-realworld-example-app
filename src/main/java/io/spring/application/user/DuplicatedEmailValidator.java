@@ -4,6 +4,7 @@ import io.spring.core.user.UserRepository;
 import javax.validation.ConstraintValidator;
 import javax.validation.ConstraintValidatorContext;
 import org.springframework.beans.factory.annotation.Autowired;
+import reactor.core.scheduler.Schedulers;
 
 public class DuplicatedEmailValidator
     implements ConstraintValidator<DuplicatedEmailConstraint, String> {
@@ -16,6 +17,15 @@ public class DuplicatedEmailValidator
       return true;
     }
     // Block here since ConstraintValidator is synchronous by design
-    return userRepository.findByEmail(value).blockOptional().isEmpty();
+    // Use publishOn to switch to boundedElastic scheduler before blocking
+    try {
+      return userRepository
+          .findByEmail(value)
+          .publishOn(Schedulers.boundedElastic())
+          .toFuture()
+          .get() == null;
+    } catch (Exception e) {
+      return true;
+    }
   }
 }

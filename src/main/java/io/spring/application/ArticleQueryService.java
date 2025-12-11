@@ -5,18 +5,15 @@ import io.spring.application.data.ArticleDataList;
 import io.spring.application.data.ProfileData;
 import io.spring.core.article.Article;
 import io.spring.core.article.ArticleRepository;
+import io.spring.core.article.TagRepository;
 import io.spring.core.favorite.ArticleFavoriteRepository;
 import io.spring.core.user.User;
 import io.spring.core.user.UserRepository;
-import io.spring.infrastructure.r2dbc.R2dbcArticleRepository;
-import io.spring.infrastructure.r2dbc.R2dbcTagRepository;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 import lombok.AllArgsConstructor;
 import org.joda.time.DateTime;
 import org.springframework.stereotype.Service;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 @Service
@@ -25,8 +22,7 @@ public class ArticleQueryService {
   private ArticleRepository articleRepository;
   private UserRepository userRepository;
   private ArticleFavoriteRepository articleFavoriteRepository;
-  private R2dbcTagRepository tagRepository;
-  private R2dbcArticleRepository r2dbcArticleRepository;
+  private TagRepository tagRepository;
 
   public Mono<ArticleData> findById(String id, User user) {
     return articleRepository.findById(id).flatMap(article -> toArticleData(article, user));
@@ -43,7 +39,7 @@ public class ArticleQueryService {
       CursorPageParameter<DateTime> page,
       User currentUser) {
     // Simplified implementation - returns all articles for now
-    return r2dbcArticleRepository
+    return articleRepository
         .findAll()
         .take(page.getLimit() + 1)
         .flatMap(article -> toArticleData(article, currentUser))
@@ -61,7 +57,7 @@ public class ArticleQueryService {
   public Mono<CursorPager<ArticleData>> findUserFeedWithCursor(
       User user, CursorPageParameter<DateTime> page) {
     // Simplified implementation - returns articles from followed users
-    return r2dbcArticleRepository
+    return articleRepository
         .findAll()
         .take(page.getLimit() + 1)
         .flatMap(article -> toArticleData(article, user))
@@ -78,24 +74,24 @@ public class ArticleQueryService {
 
   public Mono<ArticleDataList> findRecentArticles(
       String tag, String author, String favoritedBy, Page page, User currentUser) {
-    return r2dbcArticleRepository
+    return articleRepository
         .findAll()
         .skip((long) page.getOffset())
         .take(page.getLimit())
         .flatMap(article -> toArticleData(article, currentUser))
         .collectList()
-        .zipWith(r2dbcArticleRepository.count())
+        .zipWith(articleRepository.count())
         .map(tuple -> new ArticleDataList(tuple.getT1(), tuple.getT2().intValue()));
   }
 
   public Mono<ArticleDataList> findUserFeed(User user, Page page) {
-    return r2dbcArticleRepository
+    return articleRepository
         .findAll()
         .skip((long) page.getOffset())
         .take(page.getLimit())
         .flatMap(article -> toArticleData(article, user))
         .collectList()
-        .zipWith(r2dbcArticleRepository.count())
+        .zipWith(articleRepository.count())
         .map(tuple -> new ArticleDataList(tuple.getT1(), tuple.getT2().intValue()));
   }
 

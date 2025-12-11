@@ -81,7 +81,7 @@ public class ArticlesApiTest extends TestWithCurrentUser {
         .bodyValue(param)
         .exchange()
         .expectStatus()
-        .isOk()
+        .isCreated()
         .expectBody()
         .jsonPath("$.article.title")
         .isEqualTo(title)

@@ -12,37 +12,37 @@ import reactor.core.publisher.Mono;
 @Primary
 @AllArgsConstructor
 public class R2dbcUserRepositoryImpl implements UserRepository {
-  private final R2dbcUserRepository r2dbcUserRepository;
-  private final R2dbcFollowRelationRepository r2dbcFollowRelationRepository;
+  private final SpringDataUserRepository springDataUserRepository;
+  private final SpringDataFollowRelationRepository springDataFollowRelationRepository;
 
   @Override
   public Mono<User> save(User user) {
-    return r2dbcUserRepository.findById(user.getId())
-        .flatMap(existing -> r2dbcUserRepository.save(user))
-        .switchIfEmpty(r2dbcUserRepository.save(user));
+    return springDataUserRepository.findById(user.getId())
+        .flatMap(existing -> springDataUserRepository.save(user))
+        .switchIfEmpty(springDataUserRepository.save(user));
   }
 
   @Override
   public Mono<User> findById(String id) {
-    return r2dbcUserRepository.findById(id);
+    return springDataUserRepository.findById(id);
   }
 
   @Override
   public Mono<User> findByUsername(String username) {
-    return r2dbcUserRepository.findByUsername(username);
+    return springDataUserRepository.findByUsername(username);
   }
 
   @Override
   public Mono<User> findByEmail(String email) {
-    return r2dbcUserRepository.findByEmail(email);
+    return springDataUserRepository.findByEmail(email);
   }
 
   @Override
   public Mono<Void> saveRelation(FollowRelation followRelation) {
-    return r2dbcFollowRelationRepository
+    return springDataFollowRelationRepository
         .findByUserIdAndTargetId(followRelation.getUserId(), followRelation.getTargetId())
         .switchIfEmpty(
-            r2dbcFollowRelationRepository.insertFollowRelation(
+            springDataFollowRelationRepository.insertFollowRelation(
                 followRelation.getUserId(), followRelation.getTargetId())
             .then(Mono.empty()))
         .then();
@@ -50,12 +50,12 @@ public class R2dbcUserRepositoryImpl implements UserRepository {
 
   @Override
   public Mono<FollowRelation> findRelation(String userId, String targetId) {
-    return r2dbcFollowRelationRepository.findByUserIdAndTargetId(userId, targetId);
+    return springDataFollowRelationRepository.findByUserIdAndTargetId(userId, targetId);
   }
 
   @Override
   public Mono<Void> removeRelation(FollowRelation followRelation) {
-    return r2dbcFollowRelationRepository.deleteByUserIdAndTargetId(
+    return springDataFollowRelationRepository.deleteByUserIdAndTargetId(
         followRelation.getUserId(), followRelation.getTargetId());
   }
 }

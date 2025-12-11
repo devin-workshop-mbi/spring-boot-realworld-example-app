@@ -4,12 +4,10 @@ import io.spring.core.article.Tag;
 import org.springframework.data.r2dbc.repository.Modifying;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
-import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-@Repository
-public interface R2dbcTagRepository extends ReactiveCrudRepository<Tag, String> {
+public interface SpringDataTagRepository extends ReactiveCrudRepository<Tag, String> {
   Mono<Tag> findByName(String name);
 
   @Query("SELECT t.* FROM tags t INNER JOIN article_tags at ON t.id = at.tag_id WHERE at.article_id = :articleId")

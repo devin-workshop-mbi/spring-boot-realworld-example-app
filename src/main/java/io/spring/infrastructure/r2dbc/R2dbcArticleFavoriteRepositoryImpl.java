@@ -11,27 +11,27 @@ import reactor.core.publisher.Mono;
 @Primary
 @AllArgsConstructor
 public class R2dbcArticleFavoriteRepositoryImpl implements ArticleFavoriteRepository {
-  private final R2dbcArticleFavoriteRepository r2dbcArticleFavoriteRepository;
+  private final SpringDataArticleFavoriteRepository springDataArticleFavoriteRepository;
 
   @Override
   public Mono<Void> save(ArticleFavorite articleFavorite) {
-    return r2dbcArticleFavoriteRepository.insertArticleFavorite(
+    return springDataArticleFavoriteRepository.insertArticleFavorite(
         articleFavorite.getArticleId(), articleFavorite.getUserId());
   }
 
   @Override
   public Mono<ArticleFavorite> find(String articleId, String userId) {
-    return r2dbcArticleFavoriteRepository.findByArticleIdAndUserId(articleId, userId);
+    return springDataArticleFavoriteRepository.findByArticleIdAndUserId(articleId, userId);
   }
 
   @Override
   public Mono<Void> remove(ArticleFavorite favorite) {
-    return r2dbcArticleFavoriteRepository.deleteByArticleIdAndUserId(
+    return springDataArticleFavoriteRepository.deleteByArticleIdAndUserId(
         favorite.getArticleId(), favorite.getUserId());
   }
 
   @Override
   public Mono<Long> count(String articleId) {
-    return r2dbcArticleFavoriteRepository.countByArticleId(articleId);
+    return springDataArticleFavoriteRepository.countByArticleId(articleId);
   }
 }

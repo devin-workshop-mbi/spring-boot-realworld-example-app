@@ -4,11 +4,9 @@ import io.spring.core.user.FollowRelation;
 import org.springframework.data.r2dbc.repository.Modifying;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
-import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Mono;
 
-@Repository
-public interface R2dbcFollowRelationRepository extends ReactiveCrudRepository<FollowRelation, Void> {
+public interface SpringDataFollowRelationRepository extends ReactiveCrudRepository<FollowRelation, Void> {
   @Query("SELECT * FROM follows WHERE user_id = :userId AND follow_id = :targetId")
   Mono<FollowRelation> findByUserIdAndTargetId(String userId, String targetId);
 

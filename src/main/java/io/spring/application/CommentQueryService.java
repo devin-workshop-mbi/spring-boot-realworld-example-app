@@ -3,9 +3,9 @@ package io.spring.application;
 import io.spring.application.data.CommentData;
 import io.spring.application.data.ProfileData;
 import io.spring.core.comment.Comment;
+import io.spring.core.comment.CommentRepository;
 import io.spring.core.user.User;
 import io.spring.core.user.UserRepository;
-import io.spring.infrastructure.r2dbc.R2dbcCommentRepository;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.AllArgsConstructor;
@@ -17,7 +17,7 @@ import reactor.core.publisher.Mono;
 @Service
 @AllArgsConstructor
 public class CommentQueryService {
-  private R2dbcCommentRepository commentRepository;
+  private CommentRepository commentRepository;
   private UserRepository userRepository;
 
   public Mono<CommentData> findById(String id, User user) {

@@ -76,6 +76,7 @@ public class CommentsApiTest extends TestWithCurrentUser {
           }
         };
 
+    when(commentRepository.save(any(Comment.class))).thenReturn(Mono.just(comment));
     when(commentQueryService.findById(anyString(), eq(user))).thenReturn(Mono.just(commentData));
 
     client

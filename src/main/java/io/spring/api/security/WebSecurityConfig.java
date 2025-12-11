@@ -2,6 +2,8 @@ package io.spring.api.security;
 
 import static java.util.Arrays.asList;
 
+import io.spring.core.service.JwtService;
+import io.spring.core.user.UserRepository;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -21,19 +23,16 @@ import reactor.core.publisher.Mono;
 @EnableWebFluxSecurity
 public class WebSecurityConfig {
 
-  private final JwtTokenFilter jwtTokenFilter;
-
-  public WebSecurityConfig(JwtTokenFilter jwtTokenFilter) {
-    this.jwtTokenFilter = jwtTokenFilter;
-  }
-
   @Bean
-  public PasswordEncoder passwordEncoder() {
+  public PasswordEncoder passwordEncoder(){
     return new BCryptPasswordEncoder();
   }
 
   @Bean
-  public SecurityWebFilterChain securityWebFilterChain(ServerHttpSecurity http) {
+  public SecurityWebFilterChain securityWebFilterChain(
+      ServerHttpSecurity http,
+      UserRepository userRepository,
+      JwtService jwtService) {
     return http.csrf()
         .disable()
         .cors()
@@ -62,7 +61,7 @@ public class WebSecurityConfig {
         .anyExchange()
         .authenticated()
         .and()
-        .addFilterAt(jwtTokenFilter, SecurityWebFiltersOrder.AUTHENTICATION)
+        .addFilterAt(new JwtTokenFilter(userRepository, jwtService), SecurityWebFiltersOrder.AUTHENTICATION)
         .build();
   }
 

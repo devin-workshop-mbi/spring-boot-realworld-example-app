@@ -12,7 +12,6 @@ import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
-@Component
 public class JwtTokenFilter implements WebFilter {
   private final UserRepository userRepository;
   private final JwtService jwtService;
@@ -40,16 +39,22 @@ public class JwtTokenFilter implements WebFilter {
 
     return userRepository
         .findById(userIdOpt.get())
-        .flatMap(
-            user -> {
-              UsernamePasswordAuthenticationToken authenticationToken =
-                  new UsernamePasswordAuthenticationToken(user, null, Collections.emptyList());
-              return chain
-                  .filter(exchange)
-                  .contextWrite(
-                      ReactiveSecurityContextHolder.withAuthentication(authenticationToken));
-            })
-        .switchIfEmpty(chain.filter(exchange));
+        .hasElement()
+        .flatMap(hasUser -> {
+          if (hasUser) {
+            return userRepository.findById(userIdOpt.get())
+                .flatMap(user -> {
+                  UsernamePasswordAuthenticationToken authenticationToken =
+                      new UsernamePasswordAuthenticationToken(user, null, Collections.emptyList());
+                  return chain
+                      .filter(exchange)
+                      .contextWrite(
+                          ReactiveSecurityContextHolder.withAuthentication(authenticationToken));
+                });
+          } else {
+            return chain.filter(exchange);
+          }
+        });
   }
 
   private Optional<String> getTokenString(String header) {

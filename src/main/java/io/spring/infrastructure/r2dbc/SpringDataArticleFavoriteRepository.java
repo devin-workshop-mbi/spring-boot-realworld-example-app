@@ -4,11 +4,9 @@ import io.spring.core.favorite.ArticleFavorite;
 import org.springframework.data.r2dbc.repository.Modifying;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
-import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Mono;
 
-@Repository
-public interface R2dbcArticleFavoriteRepository extends ReactiveCrudRepository<ArticleFavorite, Void> {
+public interface SpringDataArticleFavoriteRepository extends ReactiveCrudRepository<ArticleFavorite, Void> {
   @Query("SELECT * FROM article_favorites WHERE article_id = :articleId AND user_id = :userId")
   Mono<ArticleFavorite> findByArticleIdAndUserId(String articleId, String userId);
 

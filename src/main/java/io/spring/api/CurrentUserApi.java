@@ -10,7 +10,9 @@ import java.util.HashMap;
 import java.util.Map;
 import javax.validation.Valid;
 import lombok.AllArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -41,13 +43,35 @@ public class CurrentUserApi {
       @AuthenticationPrincipal User currentUser,
       @RequestHeader("Authorization") String token,
       @Valid @RequestBody UpdateUserParam updateUserParam) {
-    return userService
-        .updateUser(new UpdateUserCommand(currentUser, updateUserParam))
+    return Mono.zip(
+            userService.checkEmailUnique(updateUserParam.getEmail(), currentUser),
+            userService.checkUsernameUnique(updateUserParam.getUsername(), currentUser))
         .flatMap(
-            user ->
-                userQueryService
-                    .findById(currentUser.getId())
-                    .map(userData -> userResponse(new UserWithToken(userData, token.split(" ")[1]))));
+            tuple -> {
+              boolean emailUnique = tuple.getT1();
+              boolean usernameUnique = tuple.getT2();
+              if (!emailUnique || !usernameUnique) {
+                StringBuilder message = new StringBuilder();
+                if (!emailUnique) {
+                  message.append("email already exist");
+                }
+                if (!usernameUnique) {
+                  if (message.length() > 0) message.append(", ");
+                  message.append("username already exist");
+                }
+                return Mono.error(
+                    new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, message.toString()));
+              }
+              return userService
+                  .updateUser(new UpdateUserCommand(currentUser, updateUserParam))
+                  .flatMap(
+                      user ->
+                          userQueryService
+                              .findById(currentUser.getId())
+                              .map(
+                                  userData ->
+                                      userResponse(new UserWithToken(userData, token.split(" ")[1]))));
+            });
   }
 
   private Map<String, Object> userResponse(UserWithToken userWithToken) {

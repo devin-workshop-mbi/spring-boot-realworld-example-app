@@ -1,5 +1,6 @@
 package io.spring.core.article;
 
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 public interface ArticleRepository {
@@ -11,4 +12,8 @@ public interface ArticleRepository {
   Mono<Article> findBySlug(String slug);
 
   Mono<Void> remove(Article article);
+
+  Flux<Article> findAll();
+
+  Mono<Long> count();
 }
