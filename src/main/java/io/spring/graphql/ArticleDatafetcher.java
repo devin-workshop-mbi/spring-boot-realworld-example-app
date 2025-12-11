@@ -28,9 +28,11 @@ import io.spring.graphql.types.ArticleEdge;
 import io.spring.graphql.types.ArticlesConnection;
 import io.spring.graphql.types.Profile;
 import java.util.HashMap;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import lombok.AllArgsConstructor;
 import org.joda.time.format.ISODateTimeFormat;
+import reactor.core.publisher.Mono;
 
 @DgsComponent
 @AllArgsConstructor
@@ -40,118 +42,88 @@ public class ArticleDatafetcher {
   private UserRepository userRepository;
 
   @DgsQuery(field = QUERY.Feed)
-  public DataFetcherResult<ArticlesConnection> getFeed(
+  public CompletableFuture<DataFetcherResult<ArticlesConnection>> getFeed(
       @InputArgument("first") Integer first,
       @InputArgument("after") String after,
       @InputArgument("last") Integer last,
       @InputArgument("before") String before,
       DgsDataFetchingEnvironment dfe) {
     if (first == null && last == null) {
-      throw new IllegalArgumentException("first 和 last 必须只存在一个");
+      throw new IllegalArgumentException("first and last must have one present");
     }
 
     User current = SecurityUtil.getCurrentUser().orElse(null);
 
-    CursorPager<ArticleData> articles;
+    Mono<CursorPager<ArticleData>> articlesMono;
     if (first != null) {
-      articles =
+      articlesMono =
           articleQueryService.findUserFeedWithCursor(
               current,
               new CursorPageParameter<>(DateTimeCursor.parse(after), first, Direction.NEXT));
     } else {
-      articles =
+      articlesMono =
           articleQueryService.findUserFeedWithCursor(
               current,
               new CursorPageParameter<>(DateTimeCursor.parse(before), last, Direction.PREV));
     }
-    graphql.relay.PageInfo pageInfo = buildArticlePageInfo(articles);
-    ArticlesConnection articlesConnection =
-        ArticlesConnection.newBuilder()
-            .pageInfo(pageInfo)
-            .edges(
-                articles.getData().stream()
-                    .map(
-                        a ->
-                            ArticleEdge.newBuilder()
-                                .cursor(a.getCursor().toString())
-                                .node(buildArticleResult(a))
-                                .build())
-                    .collect(Collectors.toList()))
-            .build();
-    return DataFetcherResult.<ArticlesConnection>newResult()
-        .data(articlesConnection)
-        .localContext(
-            articles.getData().stream().collect(Collectors.toMap(ArticleData::getSlug, a -> a)))
-        .build();
+
+    return articlesMono.map(articles -> buildArticlesConnectionResult(articles)).toFuture();
   }
 
   @DgsData(parentType = PROFILE.TYPE_NAME, field = PROFILE.Feed)
-  public DataFetcherResult<ArticlesConnection> userFeed(
+  public CompletableFuture<DataFetcherResult<ArticlesConnection>> userFeed(
       @InputArgument("first") Integer first,
       @InputArgument("after") String after,
       @InputArgument("last") Integer last,
       @InputArgument("before") String before,
       DgsDataFetchingEnvironment dfe) {
     if (first == null && last == null) {
-      throw new IllegalArgumentException("first 和 last 必须只存在一个");
+      throw new IllegalArgumentException("first and last must have one present");
     }
 
     Profile profile = dfe.getSource();
-    User target =
-        userRepository
-            .findByUsername(profile.getUsername())
-            .orElseThrow(ResourceNotFoundException::new);
-
-    CursorPager<ArticleData> articles;
-    if (first != null) {
-      articles =
-          articleQueryService.findUserFeedWithCursor(
-              target,
-              new CursorPageParameter<>(DateTimeCursor.parse(after), first, Direction.NEXT));
-    } else {
-      articles =
-          articleQueryService.findUserFeedWithCursor(
-              target,
-              new CursorPageParameter<>(DateTimeCursor.parse(before), last, Direction.PREV));
-    }
-    graphql.relay.PageInfo pageInfo = buildArticlePageInfo(articles);
-    ArticlesConnection articlesConnection =
-        ArticlesConnection.newBuilder()
-            .pageInfo(pageInfo)
-            .edges(
-                articles.getData().stream()
-                    .map(
-                        a ->
-                            ArticleEdge.newBuilder()
-                                .cursor(a.getCursor().toString())
-                                .node(buildArticleResult(a))
-                                .build())
-                    .collect(Collectors.toList()))
-            .build();
-    return DataFetcherResult.<ArticlesConnection>newResult()
-        .data(articlesConnection)
-        .localContext(
-            articles.getData().stream().collect(Collectors.toMap(ArticleData::getSlug, a -> a)))
-        .build();
+    return userRepository
+        .findByUsername(profile.getUsername())
+        .switchIfEmpty(Mono.error(new ResourceNotFoundException()))
+        .flatMap(
+            target -> {
+              Mono<CursorPager<ArticleData>> articlesMono;
+              if (first != null) {
+                articlesMono =
+                    articleQueryService.findUserFeedWithCursor(
+                        target,
+                        new CursorPageParameter<>(
+                            DateTimeCursor.parse(after), first, Direction.NEXT));
+              } else {
+                articlesMono =
+                    articleQueryService.findUserFeedWithCursor(
+                        target,
+                        new CursorPageParameter<>(
+                            DateTimeCursor.parse(before), last, Direction.PREV));
+              }
+              return articlesMono;
+            })
+        .map(articles -> buildArticlesConnectionResult(articles))
+        .toFuture();
   }
 
   @DgsData(parentType = PROFILE.TYPE_NAME, field = PROFILE.Favorites)
-  public DataFetcherResult<ArticlesConnection> userFavorites(
+  public CompletableFuture<DataFetcherResult<ArticlesConnection>> userFavorites(
       @InputArgument("first") Integer first,
       @InputArgument("after") String after,
       @InputArgument("last") Integer last,
       @InputArgument("before") String before,
       DgsDataFetchingEnvironment dfe) {
     if (first == null && last == null) {
-      throw new IllegalArgumentException("first 和 last 必须只存在一个");
+      throw new IllegalArgumentException("first and last must have one present");
     }
 
     User current = SecurityUtil.getCurrentUser().orElse(null);
     Profile profile = dfe.getSource();
 
-    CursorPager<ArticleData> articles;
+    Mono<CursorPager<ArticleData>> articlesMono;
     if (first != null) {
-      articles =
+      articlesMono =
           articleQueryService.findRecentArticlesWithCursor(
               null,
               null,
@@ -159,7 +131,7 @@ public class ArticleDatafetcher {
               new CursorPageParameter<>(DateTimeCursor.parse(after), first, Direction.NEXT),
               current);
     } else {
-      articles =
+      articlesMono =
           articleQueryService.findRecentArticlesWithCursor(
               null,
               null,
@@ -167,45 +139,27 @@ public class ArticleDatafetcher {
               new CursorPageParameter<>(DateTimeCursor.parse(before), last, Direction.PREV),
               current);
     }
-    graphql.relay.PageInfo pageInfo = buildArticlePageInfo(articles);
 
-    ArticlesConnection articlesConnection =
-        ArticlesConnection.newBuilder()
-            .pageInfo(pageInfo)
-            .edges(
-                articles.getData().stream()
-                    .map(
-                        a ->
-                            ArticleEdge.newBuilder()
-                                .cursor(a.getCursor().toString())
-                                .node(buildArticleResult(a))
-                                .build())
-                    .collect(Collectors.toList()))
-            .build();
-    return DataFetcherResult.<ArticlesConnection>newResult()
-        .data(articlesConnection)
-        .localContext(
-            articles.getData().stream().collect(Collectors.toMap(ArticleData::getSlug, a -> a)))
-        .build();
+    return articlesMono.map(articles -> buildArticlesConnectionResult(articles)).toFuture();
   }
 
   @DgsData(parentType = PROFILE.TYPE_NAME, field = PROFILE.Articles)
-  public DataFetcherResult<ArticlesConnection> userArticles(
+  public CompletableFuture<DataFetcherResult<ArticlesConnection>> userArticles(
       @InputArgument("first") Integer first,
       @InputArgument("after") String after,
       @InputArgument("last") Integer last,
       @InputArgument("before") String before,
       DgsDataFetchingEnvironment dfe) {
     if (first == null && last == null) {
-      throw new IllegalArgumentException("first 和 last 必须只存在一个");
+      throw new IllegalArgumentException("first and last must have one present");
     }
 
     User current = SecurityUtil.getCurrentUser().orElse(null);
     Profile profile = dfe.getSource();
 
-    CursorPager<ArticleData> articles;
+    Mono<CursorPager<ArticleData>> articlesMono;
     if (first != null) {
-      articles =
+      articlesMono =
           articleQueryService.findRecentArticlesWithCursor(
               null,
               profile.getUsername(),
@@ -213,7 +167,7 @@ public class ArticleDatafetcher {
               new CursorPageParameter<>(DateTimeCursor.parse(after), first, Direction.NEXT),
               current);
     } else {
-      articles =
+      articlesMono =
           articleQueryService.findRecentArticlesWithCursor(
               null,
               profile.getUsername(),
@@ -221,29 +175,12 @@ public class ArticleDatafetcher {
               new CursorPageParameter<>(DateTimeCursor.parse(before), last, Direction.PREV),
               current);
     }
-    graphql.relay.PageInfo pageInfo = buildArticlePageInfo(articles);
-    ArticlesConnection articlesConnection =
-        ArticlesConnection.newBuilder()
-            .pageInfo(pageInfo)
-            .edges(
-                articles.getData().stream()
-                    .map(
-                        a ->
-                            ArticleEdge.newBuilder()
-                                .cursor(a.getCursor().toString())
-                                .node(buildArticleResult(a))
-                                .build())
-                    .collect(Collectors.toList()))
-            .build();
-    return DataFetcherResult.<ArticlesConnection>newResult()
-        .data(articlesConnection)
-        .localContext(
-            articles.getData().stream().collect(Collectors.toMap(ArticleData::getSlug, a -> a)))
-        .build();
+
+    return articlesMono.map(articles -> buildArticlesConnectionResult(articles)).toFuture();
   }
 
   @DgsData(parentType = DgsConstants.QUERY_TYPE, field = QUERY.Articles)
-  public DataFetcherResult<ArticlesConnection> getArticles(
+  public CompletableFuture<DataFetcherResult<ArticlesConnection>> getArticles(
       @InputArgument("first") Integer first,
       @InputArgument("after") String after,
       @InputArgument("last") Integer last,
@@ -253,14 +190,14 @@ public class ArticleDatafetcher {
       @InputArgument("withTag") String withTag,
       DgsDataFetchingEnvironment dfe) {
     if (first == null && last == null) {
-      throw new IllegalArgumentException("first 和 last 必须只存在一个");
+      throw new IllegalArgumentException("first and last must have one present");
     }
 
     User current = SecurityUtil.getCurrentUser().orElse(null);
 
-    CursorPager<ArticleData> articles;
+    Mono<CursorPager<ArticleData>> articlesMono;
     if (first != null) {
-      articles =
+      articlesMono =
           articleQueryService.findRecentArticlesWithCursor(
               withTag,
               authoredBy,
@@ -268,7 +205,7 @@ public class ArticleDatafetcher {
               new CursorPageParameter<>(DateTimeCursor.parse(after), first, Direction.NEXT),
               current);
     } else {
-      articles =
+      articlesMono =
           articleQueryService.findRecentArticlesWithCursor(
               withTag,
               authoredBy,
@@ -276,6 +213,85 @@ public class ArticleDatafetcher {
               new CursorPageParameter<>(DateTimeCursor.parse(before), last, Direction.PREV),
               current);
     }
+
+    return articlesMono.map(articles -> buildArticlesConnectionResult(articles)).toFuture();
+  }
+
+  @DgsData(parentType = ARTICLEPAYLOAD.TYPE_NAME, field = ARTICLEPAYLOAD.Article)
+  public CompletableFuture<DataFetcherResult<Article>> getArticle(DataFetchingEnvironment dfe) {
+    io.spring.core.article.Article article = dfe.getLocalContext();
+    User current = SecurityUtil.getCurrentUser().orElse(null);
+
+    return articleQueryService
+        .findById(article.getId(), current)
+        .switchIfEmpty(Mono.error(new ResourceNotFoundException()))
+        .map(
+            articleData -> {
+              Article articleResult = buildArticleResult(articleData);
+              return DataFetcherResult.<Article>newResult()
+                  .localContext(
+                      new HashMap<String, Object>() {
+                        {
+                          put(articleData.getSlug(), articleData);
+                        }
+                      })
+                  .data(articleResult)
+                  .build();
+            })
+        .toFuture();
+  }
+
+  @DgsData(parentType = COMMENT.TYPE_NAME, field = COMMENT.Article)
+  public CompletableFuture<DataFetcherResult<Article>> getCommentArticle(
+      DataFetchingEnvironment dataFetchingEnvironment) {
+    CommentData comment = dataFetchingEnvironment.getLocalContext();
+    User current = SecurityUtil.getCurrentUser().orElse(null);
+
+    return articleQueryService
+        .findById(comment.getArticleId(), current)
+        .switchIfEmpty(Mono.error(new ResourceNotFoundException()))
+        .map(
+            articleData -> {
+              Article articleResult = buildArticleResult(articleData);
+              return DataFetcherResult.<Article>newResult()
+                  .localContext(
+                      new HashMap<String, Object>() {
+                        {
+                          put(articleData.getSlug(), articleData);
+                        }
+                      })
+                  .data(articleResult)
+                  .build();
+            })
+        .toFuture();
+  }
+
+  @DgsQuery(field = QUERY.Article)
+  public CompletableFuture<DataFetcherResult<Article>> findArticleBySlug(
+      @InputArgument("slug") String slug) {
+    User current = SecurityUtil.getCurrentUser().orElse(null);
+
+    return articleQueryService
+        .findBySlug(slug, current)
+        .switchIfEmpty(Mono.error(new ResourceNotFoundException()))
+        .map(
+            articleData -> {
+              Article articleResult = buildArticleResult(articleData);
+              return DataFetcherResult.<Article>newResult()
+                  .localContext(
+                      new HashMap<String, Object>() {
+                        {
+                          put(articleData.getSlug(), articleData);
+                        }
+                      })
+                  .data(articleResult)
+                  .build();
+            })
+        .toFuture();
+  }
+
+  private DataFetcherResult<ArticlesConnection> buildArticlesConnectionResult(
+      CursorPager<ArticleData> articles) {
     graphql.relay.PageInfo pageInfo = buildArticlePageInfo(articles);
     ArticlesConnection articlesConnection =
         ArticlesConnection.newBuilder()
@@ -294,65 +310,6 @@ public class ArticleDatafetcher {
         .data(articlesConnection)
         .localContext(
             articles.getData().stream().collect(Collectors.toMap(ArticleData::getSlug, a -> a)))
-        .build();
-  }
-
-  @DgsData(parentType = ARTICLEPAYLOAD.TYPE_NAME, field = ARTICLEPAYLOAD.Article)
-  public DataFetcherResult<Article> getArticle(DataFetchingEnvironment dfe) {
-    io.spring.core.article.Article article = dfe.getLocalContext();
-
-    User current = SecurityUtil.getCurrentUser().orElse(null);
-    ArticleData articleData =
-        articleQueryService
-            .findById(article.getId(), current)
-            .orElseThrow(ResourceNotFoundException::new);
-    Article articleResult = buildArticleResult(articleData);
-    return DataFetcherResult.<Article>newResult()
-        .localContext(
-            new HashMap<String, Object>() {
-              {
-                put(articleData.getSlug(), articleData);
-              }
-            })
-        .data(articleResult)
-        .build();
-  }
-
-  @DgsData(parentType = COMMENT.TYPE_NAME, field = COMMENT.Article)
-  public DataFetcherResult<Article> getCommentArticle(
-      DataFetchingEnvironment dataFetchingEnvironment) {
-    CommentData comment = dataFetchingEnvironment.getLocalContext();
-    User current = SecurityUtil.getCurrentUser().orElse(null);
-    ArticleData articleData =
-        articleQueryService
-            .findById(comment.getArticleId(), current)
-            .orElseThrow(ResourceNotFoundException::new);
-    Article articleResult = buildArticleResult(articleData);
-    return DataFetcherResult.<Article>newResult()
-        .localContext(
-            new HashMap<String, Object>() {
-              {
-                put(articleData.getSlug(), articleData);
-              }
-            })
-        .data(articleResult)
-        .build();
-  }
-
-  @DgsQuery(field = QUERY.Article)
-  public DataFetcherResult<Article> findArticleBySlug(@InputArgument("slug") String slug) {
-    User current = SecurityUtil.getCurrentUser().orElse(null);
-    ArticleData articleData =
-        articleQueryService.findBySlug(slug, current).orElseThrow(ResourceNotFoundException::new);
-    Article articleResult = buildArticleResult(articleData);
-    return DataFetcherResult.<Article>newResult()
-        .localContext(
-            new HashMap<String, Object>() {
-              {
-                put(articleData.getSlug(), articleData);
-              }
-            })
-        .data(articleResult)
         .build();
   }
 

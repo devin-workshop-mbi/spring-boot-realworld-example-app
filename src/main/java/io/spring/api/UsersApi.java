@@ -25,7 +25,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
 
 @RestController
 @AllArgsConstructor
@@ -39,30 +38,31 @@ public class UsersApi {
   @RequestMapping(path = "/users", method = POST)
   @ResponseStatus(HttpStatus.CREATED)
   public Mono<Map<String, Object>> createUser(@Valid @RequestBody RegisterParam registerParam) {
-    return Mono.fromCallable(
-            () -> {
-              var user = userService.createUser(registerParam);
-              var userData = userQueryService.findById(user.getId()).get();
-              return userResponse(new UserWithToken(userData, jwtService.toToken(user)));
-            })
-        .subscribeOn(Schedulers.boundedElastic());
+    return userService
+        .createUser(registerParam)
+        .flatMap(
+            user ->
+                userQueryService
+                    .findById(user.getId())
+                    .map(
+                        userData ->
+                            userResponse(
+                                new UserWithToken(userData, jwtService.toToken(user)))));
   }
 
   @RequestMapping(path = "/users/login", method = POST)
   public Mono<Map<String, Object>> userLogin(@Valid @RequestBody LoginParam loginParam) {
-    return Mono.fromCallable(
-            () -> {
-              var optional = userRepository.findByEmail(loginParam.getEmail());
-              if (optional.isPresent()
-                  && passwordEncoder.matches(
-                      loginParam.getPassword(), optional.get().getPassword())) {
-                var userData = userQueryService.findById(optional.get().getId()).get();
-                return userResponse(new UserWithToken(userData, jwtService.toToken(optional.get())));
-              } else {
-                throw new InvalidAuthenticationException();
-              }
-            })
-        .subscribeOn(Schedulers.boundedElastic());
+    return userRepository
+        .findByEmail(loginParam.getEmail())
+        .filter(user -> passwordEncoder.matches(loginParam.getPassword(), user.getPassword()))
+        .switchIfEmpty(Mono.error(new InvalidAuthenticationException()))
+        .flatMap(
+            user ->
+                userQueryService
+                    .findById(user.getId())
+                    .map(
+                        userData ->
+                            userResponse(new UserWithToken(userData, jwtService.toToken(user)))));
   }
 
   private Map<String, Object> userResponse(UserWithToken userWithToken) {

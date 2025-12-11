@@ -18,6 +18,7 @@ import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import reactor.core.publisher.Mono;
 
 @WebFluxTest(ProfileApi.class)
 @Import({WebSecurityConfig.class, JacksonCustomizations.class})
@@ -42,13 +43,13 @@ public class ProfileApiTest extends TestWithCurrentUser {
             anotherUser.getImage(),
             false);
     when(userRepository.findByUsername(eq(anotherUser.getUsername())))
-        .thenReturn(Optional.of(anotherUser));
+        .thenReturn(Mono.just(anotherUser));
   }
 
   @Test
   public void should_get_user_profile_success() throws Exception {
     when(profileQueryService.findByUsername(eq(profileData.getUsername()), eq(null)))
-        .thenReturn(Optional.of(profileData));
+        .thenReturn(Mono.just(profileData));
     client
         .get()
         .uri("/profiles/{username}", profileData.getUsername())
@@ -63,7 +64,9 @@ public class ProfileApiTest extends TestWithCurrentUser {
   @Test
   public void should_follow_user_success() throws Exception {
     when(profileQueryService.findByUsername(eq(profileData.getUsername()), eq(user)))
-        .thenReturn(Optional.of(profileData));
+        .thenReturn(Mono.just(profileData));
+    when(userRepository.saveRelation(new FollowRelation(user.getId(), anotherUser.getId())))
+        .thenReturn(Mono.empty());
     client
         .post()
         .uri("/profiles/{username}/follow", anotherUser.getUsername())
@@ -78,9 +81,10 @@ public class ProfileApiTest extends TestWithCurrentUser {
   public void should_unfollow_user_success() throws Exception {
     FollowRelation followRelation = new FollowRelation(user.getId(), anotherUser.getId());
     when(userRepository.findRelation(eq(user.getId()), eq(anotherUser.getId())))
-        .thenReturn(Optional.of(followRelation));
+        .thenReturn(Mono.just(followRelation));
     when(profileQueryService.findByUsername(eq(profileData.getUsername()), eq(user)))
-        .thenReturn(Optional.of(profileData));
+        .thenReturn(Mono.just(profileData));
+    when(userRepository.removeRelation(eq(followRelation))).thenReturn(Mono.empty());
 
     client
         .delete()

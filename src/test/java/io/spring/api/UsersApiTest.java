@@ -13,10 +13,8 @@ import io.spring.application.user.UserService;
 import io.spring.core.service.JwtService;
 import io.spring.core.user.User;
 import io.spring.core.user.UserRepository;
-import io.spring.infrastructure.mybatis.readservice.UserReadService;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,11 +25,11 @@ import org.springframework.http.MediaType;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import reactor.core.publisher.Mono;
 
 @WebFluxTest(UsersApi.class)
 @Import({
   WebSecurityConfig.class,
-  UserQueryService.class,
   BCryptPasswordEncoder.class,
   JacksonCustomizations.class
 })
@@ -42,7 +40,7 @@ public class UsersApiTest {
 
   @MockBean private JwtService jwtService;
 
-  @MockBean private UserReadService userReadService;
+  @MockBean private UserQueryService userQueryService;
 
   @MockBean private UserService userService;
 
@@ -63,12 +61,12 @@ public class UsersApiTest {
     when(jwtService.toToken(any())).thenReturn("123");
     User user = new User(email, username, "123", "", defaultAvatar);
     UserData userData = new UserData(user.getId(), email, username, "", defaultAvatar);
-    when(userReadService.findById(any())).thenReturn(userData);
+    when(userQueryService.findById(any())).thenReturn(Mono.just(userData));
 
-    when(userService.createUser(any())).thenReturn(user);
+    when(userService.createUser(any())).thenReturn(Mono.just(user));
 
-    when(userRepository.findByUsername(eq(username))).thenReturn(Optional.empty());
-    when(userRepository.findByEmail(eq(email))).thenReturn(Optional.empty());
+    when(userRepository.findByUsername(eq(username))).thenReturn(Mono.empty());
+    when(userRepository.findByEmail(eq(email))).thenReturn(Mono.empty());
 
     Map<String, Object> param = prepareRegisterParameter(email, username);
 
@@ -142,8 +140,8 @@ public class UsersApiTest {
     String username = "johnjacob";
 
     when(userRepository.findByUsername(eq(username)))
-        .thenReturn(Optional.of(new User(email, username, "123", "bio", "")));
-    when(userRepository.findByEmail(any())).thenReturn(Optional.empty());
+        .thenReturn(Mono.just(new User(email, username, "123", "bio", "")));
+    when(userRepository.findByEmail(any())).thenReturn(Mono.empty());
 
     Map<String, Object> param = prepareRegisterParameter(email, username);
 
@@ -166,9 +164,9 @@ public class UsersApiTest {
     String username = "johnjacob2";
 
     when(userRepository.findByEmail(eq(email)))
-        .thenReturn(Optional.of(new User(email, username, "123", "bio", "")));
+        .thenReturn(Mono.just(new User(email, username, "123", "bio", "")));
 
-    when(userRepository.findByUsername(eq(username))).thenReturn(Optional.empty());
+    when(userRepository.findByUsername(eq(username))).thenReturn(Mono.empty());
 
     Map<String, Object> param = prepareRegisterParameter(email, username);
 
@@ -206,9 +204,8 @@ public class UsersApiTest {
     User user = new User(email, username, passwordEncoder.encode(password), "", defaultAvatar);
     UserData userData = new UserData("123", email, username, "", defaultAvatar);
 
-    when(userRepository.findByEmail(eq(email))).thenReturn(Optional.of(user));
-    when(userReadService.findByUsername(eq(username))).thenReturn(userData);
-    when(userReadService.findById(eq(user.getId()))).thenReturn(userData);
+    when(userRepository.findByEmail(eq(email))).thenReturn(Mono.just(user));
+    when(userQueryService.findById(eq(user.getId()))).thenReturn(Mono.just(userData));
     when(jwtService.toToken(any())).thenReturn("123");
 
     Map<String, Object> userMap = new HashMap<>();
@@ -248,8 +245,8 @@ public class UsersApiTest {
     User user = new User(email, username, password, "", defaultAvatar);
     UserData userData = new UserData(user.getId(), email, username, "", defaultAvatar);
 
-    when(userRepository.findByEmail(eq(email))).thenReturn(Optional.of(user));
-    when(userReadService.findByUsername(eq(username))).thenReturn(userData);
+    when(userRepository.findByEmail(eq(email))).thenReturn(Mono.just(user));
+    when(userQueryService.findById(eq(user.getId()))).thenReturn(Mono.just(userData));
 
     Map<String, Object> userMap = new HashMap<>();
     userMap.put("email", email);

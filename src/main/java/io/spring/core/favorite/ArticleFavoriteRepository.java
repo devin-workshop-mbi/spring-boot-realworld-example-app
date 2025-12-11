@@ -1,11 +1,13 @@
 package io.spring.core.favorite;
 
-import java.util.Optional;
+import reactor.core.publisher.Mono;
 
 public interface ArticleFavoriteRepository {
-  void save(ArticleFavorite articleFavorite);
+  Mono<Void> save(ArticleFavorite articleFavorite);
 
-  Optional<ArticleFavorite> find(String articleId, String userId);
+  Mono<ArticleFavorite> find(String articleId, String userId);
 
-  void remove(ArticleFavorite favorite);
+  Mono<Void> remove(ArticleFavorite favorite);
+
+  Mono<Long> count(String articleId);
 }

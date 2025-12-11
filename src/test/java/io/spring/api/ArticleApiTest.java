@@ -20,7 +20,6 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import org.joda.time.DateTime;
 import org.joda.time.format.ISODateTimeFormat;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,6 +30,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import reactor.core.publisher.Mono;
 
 @WebFluxTest({ArticleApi.class})
 @Import({WebSecurityConfig.class, JacksonCustomizations.class})
@@ -63,7 +63,7 @@ public class ArticleApiTest extends TestWithCurrentUser {
             time);
     ArticleData articleData = TestHelper.getArticleDataFromArticleAndUser(article, user);
 
-    when(articleQueryService.findBySlug(eq(slug), eq(null))).thenReturn(Optional.of(articleData));
+    when(articleQueryService.findBySlug(eq(slug), eq(null))).thenReturn(Mono.just(articleData));
 
     client
         .get()
@@ -82,7 +82,7 @@ public class ArticleApiTest extends TestWithCurrentUser {
 
   @Test
   public void should_404_if_article_not_found() throws Exception {
-    when(articleQueryService.findBySlug(anyString(), any())).thenReturn(Optional.empty());
+    when(articleQueryService.findBySlug(anyString(), any())).thenReturn(Mono.empty());
     client.get().uri("/articles/not-exists").exchange().expectStatus().isNotFound();
   }
 
@@ -104,11 +104,11 @@ public class ArticleApiTest extends TestWithCurrentUser {
         TestHelper.getArticleDataFromArticleAndUser(updatedArticle, user);
 
     when(articleRepository.findBySlug(eq(originalArticle.getSlug())))
-        .thenReturn(Optional.of(originalArticle));
+        .thenReturn(Mono.just(originalArticle));
     when(articleCommandService.updateArticle(eq(originalArticle), any()))
-        .thenReturn(updatedArticle);
+        .thenReturn(Mono.just(updatedArticle));
     when(articleQueryService.findBySlug(eq(updatedArticle.getSlug()), eq(user)))
-        .thenReturn(Optional.of(updatedArticleData));
+        .thenReturn(Mono.just(updatedArticleData));
 
     client
         .put()
@@ -157,9 +157,9 @@ public class ArticleApiTest extends TestWithCurrentUser {
                 anotherUser.getImage(),
                 false));
 
-    when(articleRepository.findBySlug(eq(article.getSlug()))).thenReturn(Optional.of(article));
+    when(articleRepository.findBySlug(eq(article.getSlug()))).thenReturn(Mono.just(article));
     when(articleQueryService.findBySlug(eq(article.getSlug()), eq(user)))
-        .thenReturn(Optional.of(articleData));
+        .thenReturn(Mono.just(articleData));
 
     client
         .put()
@@ -180,7 +180,8 @@ public class ArticleApiTest extends TestWithCurrentUser {
 
     Article article =
         new Article(title, description, body, Arrays.asList("java", "spring", "jpg"), user.getId());
-    when(articleRepository.findBySlug(eq(article.getSlug()))).thenReturn(Optional.of(article));
+    when(articleRepository.findBySlug(eq(article.getSlug()))).thenReturn(Mono.just(article));
+    when(articleRepository.remove(eq(article))).thenReturn(Mono.empty());
 
     client
         .delete()
@@ -205,7 +206,7 @@ public class ArticleApiTest extends TestWithCurrentUser {
         new Article(
             title, description, body, Arrays.asList("java", "spring", "jpg"), anotherUser.getId());
 
-    when(articleRepository.findBySlug(eq(article.getSlug()))).thenReturn(Optional.of(article));
+    when(articleRepository.findBySlug(eq(article.getSlug()))).thenReturn(Mono.just(article));
     client
         .delete()
         .uri("/articles/{slug}", article.getSlug())

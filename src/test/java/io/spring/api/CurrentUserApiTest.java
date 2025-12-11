@@ -22,6 +22,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import reactor.core.publisher.Mono;
 
 @WebFluxTest(CurrentUserApi.class)
 @Import({
@@ -45,7 +46,7 @@ public class CurrentUserApiTest extends TestWithCurrentUser {
 
   @Test
   public void should_get_current_user_with_token() throws Exception {
-    when(userQueryService.findById(any())).thenReturn(Optional.of(userData));
+    when(userQueryService.findById(any())).thenReturn(Mono.just(userData));
 
     client
         .get()
@@ -107,10 +108,10 @@ public class CurrentUserApiTest extends TestWithCurrentUser {
     Map<String, Object> param = new HashMap<>();
     param.put("user", userMap);
 
-    when(userRepository.findByUsername(eq(newUsername))).thenReturn(Optional.empty());
-    when(userRepository.findByEmail(eq(newEmail))).thenReturn(Optional.empty());
+    when(userRepository.findByUsername(eq(newUsername))).thenReturn(Mono.empty());
+    when(userRepository.findByEmail(eq(newEmail))).thenReturn(Mono.empty());
 
-    when(userQueryService.findById(eq(user.getId()))).thenReturn(Optional.of(userData));
+    when(userQueryService.findById(eq(user.getId()))).thenReturn(Mono.just(userData));
 
     client
         .put()
@@ -132,10 +133,10 @@ public class CurrentUserApiTest extends TestWithCurrentUser {
     Map<String, Object> param = prepareUpdateParam(newEmail, newBio, newUsername);
 
     when(userRepository.findByEmail(eq(newEmail)))
-        .thenReturn(Optional.of(new User(newEmail, "username", "123", "", "")));
-    when(userRepository.findByUsername(eq(newUsername))).thenReturn(Optional.empty());
+        .thenReturn(Mono.just(new User(newEmail, "username", "123", "", "")));
+    when(userRepository.findByUsername(eq(newUsername))).thenReturn(Mono.empty());
 
-    when(userQueryService.findById(eq(user.getId()))).thenReturn(Optional.of(userData));
+    when(userQueryService.findById(eq(user.getId()))).thenReturn(Mono.just(userData));
 
     client
         .put()

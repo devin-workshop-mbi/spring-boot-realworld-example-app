@@ -16,7 +16,6 @@ import io.spring.core.article.Article;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import org.joda.time.DateTime;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,6 +25,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import reactor.core.publisher.Mono;
 
 @WebFluxTest({ArticlesApi.class})
 @Import({WebSecurityConfig.class, JacksonCustomizations.class})
@@ -66,12 +66,12 @@ public class ArticlesApiTest extends TestWithCurrentUser {
             new ProfileData("userid", user.getUsername(), user.getBio(), user.getImage(), false));
 
     when(articleCommandService.createArticle(any(), any()))
-        .thenReturn(new Article(title, description, body, tagList, user.getId()));
+        .thenReturn(Mono.just(new Article(title, description, body, tagList, user.getId())));
 
     when(articleQueryService.findBySlug(eq(Article.toSlug(title)), any()))
-        .thenReturn(Optional.empty());
+        .thenReturn(Mono.empty());
 
-    when(articleQueryService.findById(any(), any())).thenReturn(Optional.of(articleData));
+    when(articleQueryService.findById(any(), any())).thenReturn(Mono.just(articleData));
 
     client
         .post()
@@ -143,9 +143,9 @@ public class ArticlesApiTest extends TestWithCurrentUser {
             new ProfileData("userid", user.getUsername(), user.getBio(), user.getImage(), false));
 
     when(articleQueryService.findBySlug(eq(Article.toSlug(title)), any()))
-        .thenReturn(Optional.of(articleData));
+        .thenReturn(Mono.just(articleData));
 
-    when(articleQueryService.findById(any(), any())).thenReturn(Optional.of(articleData));
+    when(articleQueryService.findById(any(), any())).thenReturn(Mono.just(articleData));
 
     client
         .post()

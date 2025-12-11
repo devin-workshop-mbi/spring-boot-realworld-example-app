@@ -27,6 +27,8 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 @WebFluxTest(CommentsApi.class)
 @Import({WebSecurityConfig.class, JacksonCustomizations.class})
@@ -46,7 +48,7 @@ public class CommentsApiTest extends TestWithCurrentUser {
   public void setUp() throws Exception {
     super.setUp();
     article = new Article("title", "desc", "body", Arrays.asList("test", "java"), user.getId());
-    when(articleRepository.findBySlug(eq(article.getSlug()))).thenReturn(Optional.of(article));
+    when(articleRepository.findBySlug(eq(article.getSlug()))).thenReturn(Mono.just(article));
     comment = new Comment("comment", user.getId(), article.getId());
     commentData =
         new CommentData(
@@ -74,7 +76,7 @@ public class CommentsApiTest extends TestWithCurrentUser {
           }
         };
 
-    when(commentQueryService.findById(anyString(), eq(user))).thenReturn(Optional.of(commentData));
+    when(commentQueryService.findById(anyString(), eq(user))).thenReturn(Mono.just(commentData));
 
     client
         .post()
@@ -122,7 +124,7 @@ public class CommentsApiTest extends TestWithCurrentUser {
   @Test
   public void should_get_comments_of_article_success() throws Exception {
     when(commentQueryService.findByArticleId(anyString(), eq(null)))
-        .thenReturn(Arrays.asList(commentData));
+        .thenReturn(Flux.just(commentData));
     client
         .get()
         .uri("/articles/{slug}/comments", article.getSlug())
@@ -137,7 +139,8 @@ public class CommentsApiTest extends TestWithCurrentUser {
   @Test
   public void should_delete_comment_success() throws Exception {
     when(commentRepository.findById(eq(article.getId()), eq(comment.getId())))
-        .thenReturn(Optional.of(comment));
+        .thenReturn(Mono.just(comment));
+    when(commentRepository.remove(eq(comment))).thenReturn(Mono.empty());
 
     client
         .delete()
@@ -153,15 +156,15 @@ public class CommentsApiTest extends TestWithCurrentUser {
       throws Exception {
     User anotherUser = new User("other@example.com", "other", "123", "", "");
     when(userRepository.findByUsername(eq(anotherUser.getUsername())))
-        .thenReturn(Optional.of(anotherUser));
+        .thenReturn(Mono.just(anotherUser));
     when(jwtService.getSubFromToken(any())).thenReturn(Optional.of(anotherUser.getId()));
     when(userRepository.findById(eq(anotherUser.getId())))
-        .thenReturn(Optional.ofNullable(anotherUser));
+        .thenReturn(Mono.just(anotherUser));
 
     when(commentRepository.findById(eq(article.getId()), eq(comment.getId())))
-        .thenReturn(Optional.of(comment));
+        .thenReturn(Mono.just(comment));
     String token = jwtService.toToken(anotherUser);
-    when(userRepository.findById(eq(anotherUser.getId()))).thenReturn(Optional.of(anotherUser));
+    when(userRepository.findById(eq(anotherUser.getId()))).thenReturn(Mono.just(anotherUser));
     client
         .delete()
         .uri("/articles/{slug}/comments/{id}", article.getSlug(), comment.getId())

@@ -11,7 +11,6 @@ import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
 
 @Component
 public class JwtTokenFilter implements WebFilter {
@@ -39,21 +38,18 @@ public class JwtTokenFilter implements WebFilter {
       return chain.filter(exchange);
     }
 
-    return Mono.fromCallable(() -> userRepository.findById(userIdOpt.get()))
-        .subscribeOn(Schedulers.boundedElastic())
+    return userRepository
+        .findById(userIdOpt.get())
         .flatMap(
-            userOpt -> {
-              if (userOpt.isPresent()) {
-                UsernamePasswordAuthenticationToken authenticationToken =
-                    new UsernamePasswordAuthenticationToken(
-                        userOpt.get(), null, Collections.emptyList());
-                return chain
-                    .filter(exchange)
-                    .contextWrite(
-                        ReactiveSecurityContextHolder.withAuthentication(authenticationToken));
-              }
-              return chain.filter(exchange);
-            });
+            user -> {
+              UsernamePasswordAuthenticationToken authenticationToken =
+                  new UsernamePasswordAuthenticationToken(user, null, Collections.emptyList());
+              return chain
+                  .filter(exchange)
+                  .contextWrite(
+                      ReactiveSecurityContextHolder.withAuthentication(authenticationToken));
+            })
+        .switchIfEmpty(chain.filter(exchange));
   }
 
   private Optional<String> getTokenString(String header) {

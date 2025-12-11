@@ -18,7 +18,6 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
 
 @RestController
 @RequestMapping(path = "/user")
@@ -32,12 +31,9 @@ public class CurrentUserApi {
   public Mono<Map<String, Object>> currentUser(
       @AuthenticationPrincipal User currentUser,
       @RequestHeader(value = "Authorization") String authorization) {
-    return Mono.fromCallable(
-            () -> {
-              var userData = userQueryService.findById(currentUser.getId()).get();
-              return userResponse(new UserWithToken(userData, authorization.split(" ")[1]));
-            })
-        .subscribeOn(Schedulers.boundedElastic());
+    return userQueryService
+        .findById(currentUser.getId())
+        .map(userData -> userResponse(new UserWithToken(userData, authorization.split(" ")[1])));
   }
 
   @PutMapping
@@ -45,13 +41,13 @@ public class CurrentUserApi {
       @AuthenticationPrincipal User currentUser,
       @RequestHeader("Authorization") String token,
       @Valid @RequestBody UpdateUserParam updateUserParam) {
-    return Mono.fromCallable(
-            () -> {
-              userService.updateUser(new UpdateUserCommand(currentUser, updateUserParam));
-              var userData = userQueryService.findById(currentUser.getId()).get();
-              return userResponse(new UserWithToken(userData, token.split(" ")[1]));
-            })
-        .subscribeOn(Schedulers.boundedElastic());
+    return userService
+        .updateUser(new UpdateUserCommand(currentUser, updateUserParam))
+        .flatMap(
+            user ->
+                userQueryService
+                    .findById(currentUser.getId())
+                    .map(userData -> userResponse(new UserWithToken(userData, token.split(" ")[1]))));
   }
 
   private Map<String, Object> userResponse(UserWithToken userWithToken) {

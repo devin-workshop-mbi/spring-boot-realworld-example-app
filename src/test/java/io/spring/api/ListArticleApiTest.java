@@ -19,6 +19,7 @@ import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import reactor.core.publisher.Mono;
 
 @WebFluxTest(ArticlesApi.class)
 @Import({WebSecurityConfig.class, JacksonCustomizations.class})
@@ -44,7 +45,7 @@ public class ListArticleApiTest extends TestWithCurrentUser {
             asList(articleDataFixture("1", user), articleDataFixture("2", user)), 2);
     when(articleQueryService.findRecentArticles(
             eq(null), eq(null), eq(null), eq(new Page(0, 20)), eq(null)))
-        .thenReturn(articleDataList);
+        .thenReturn(Mono.just(articleDataList));
     client.get().uri("/articles").exchange().expectStatus().isOk();
   }
 
@@ -59,7 +60,7 @@ public class ListArticleApiTest extends TestWithCurrentUser {
         new ArticleDataList(
             asList(articleDataFixture("1", user), articleDataFixture("2", user)), 2);
     when(articleQueryService.findUserFeed(eq(user), eq(new Page(0, 20))))
-        .thenReturn(articleDataList);
+        .thenReturn(Mono.just(articleDataList));
 
     client
         .get()

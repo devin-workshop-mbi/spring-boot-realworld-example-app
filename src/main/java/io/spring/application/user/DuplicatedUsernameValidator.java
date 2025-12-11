@@ -12,6 +12,10 @@ class DuplicatedUsernameValidator
 
   @Override
   public boolean isValid(String value, ConstraintValidatorContext context) {
-    return (value == null || value.isEmpty()) || !userRepository.findByUsername(value).isPresent();
+    if (value == null || value.isEmpty()) {
+      return true;
+    }
+    // Block here since ConstraintValidator is synchronous by design
+    return userRepository.findByUsername(value).blockOptional().isEmpty();
   }
 }

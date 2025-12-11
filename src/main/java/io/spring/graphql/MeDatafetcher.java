@@ -12,6 +12,7 @@ import io.spring.core.service.JwtService;
 import io.spring.graphql.DgsConstants.QUERY;
 import io.spring.graphql.DgsConstants.USERPAYLOAD;
 import io.spring.graphql.types.User;
+import java.util.concurrent.CompletableFuture;
 import lombok.AllArgsConstructor;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -25,25 +26,31 @@ public class MeDatafetcher {
   private JwtService jwtService;
 
   @DgsData(parentType = DgsConstants.QUERY_TYPE, field = QUERY.Me)
-  public DataFetcherResult<User> getMe(
+  public CompletableFuture<DataFetcherResult<User>> getMe(
       @RequestHeader(value = "Authorization") String authorization,
       DataFetchingEnvironment dataFetchingEnvironment) {
     Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
     if (authentication instanceof AnonymousAuthenticationToken
         || authentication.getPrincipal() == null) {
-      return null;
+      return CompletableFuture.completedFuture(null);
     }
     io.spring.core.user.User user = (io.spring.core.user.User) authentication.getPrincipal();
-    UserData userData =
-        userQueryService.findById(user.getId()).orElseThrow(ResourceNotFoundException::new);
-    UserWithToken userWithToken = new UserWithToken(userData, authorization.split(" ")[1]);
-    User result =
-        User.newBuilder()
-            .email(userWithToken.getEmail())
-            .username(userWithToken.getUsername())
-            .token(userWithToken.getToken())
-            .build();
-    return DataFetcherResult.<User>newResult().data(result).localContext(user).build();
+    return userQueryService
+        .findById(user.getId())
+        .switchIfEmpty(reactor.core.publisher.Mono.error(new ResourceNotFoundException()))
+        .map(
+            userData -> {
+              UserWithToken userWithToken =
+                  new UserWithToken(userData, authorization.split(" ")[1]);
+              User result =
+                  User.newBuilder()
+                      .email(userWithToken.getEmail())
+                      .username(userWithToken.getUsername())
+                      .token(userWithToken.getToken())
+                      .build();
+              return DataFetcherResult.<User>newResult().data(result).localContext(user).build();
+            })
+        .toFuture();
   }
 
   @DgsData(parentType = USERPAYLOAD.TYPE_NAME, field = USERPAYLOAD.User)

@@ -17,7 +17,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
 
 @RestController
 @RequestMapping(path = "articles/{slug}/favorite")
@@ -30,30 +29,30 @@ public class ArticleFavoriteApi {
   @PostMapping
   public Mono<Map<String, Object>> favoriteArticle(
       @PathVariable("slug") String slug, @AuthenticationPrincipal User user) {
-    return Mono.fromCallable(
-            () -> {
-              var article =
-                  articleRepository.findBySlug(slug).orElseThrow(ResourceNotFoundException::new);
+    return articleRepository
+        .findBySlug(slug)
+        .switchIfEmpty(Mono.error(new ResourceNotFoundException()))
+        .flatMap(
+            article -> {
               ArticleFavorite articleFavorite = new ArticleFavorite(article.getId(), user.getId());
-              articleFavoriteRepository.save(articleFavorite);
-              return responseArticleData(articleQueryService.findBySlug(slug, user).get());
-            })
-        .subscribeOn(Schedulers.boundedElastic());
+              return articleFavoriteRepository
+                  .save(articleFavorite)
+                  .then(articleQueryService.findBySlug(slug, user).map(this::responseArticleData));
+            });
   }
 
   @DeleteMapping
   public Mono<Map<String, Object>> unfavoriteArticle(
       @PathVariable("slug") String slug, @AuthenticationPrincipal User user) {
-    return Mono.fromCallable(
-            () -> {
-              var article =
-                  articleRepository.findBySlug(slug).orElseThrow(ResourceNotFoundException::new);
-              articleFavoriteRepository
-                  .find(article.getId(), user.getId())
-                  .ifPresent(articleFavoriteRepository::remove);
-              return responseArticleData(articleQueryService.findBySlug(slug, user).get());
-            })
-        .subscribeOn(Schedulers.boundedElastic());
+    return articleRepository
+        .findBySlug(slug)
+        .switchIfEmpty(Mono.error(new ResourceNotFoundException()))
+        .flatMap(
+            article ->
+                articleFavoriteRepository
+                    .find(article.getId(), user.getId())
+                    .flatMap(articleFavoriteRepository::remove)
+                    .then(articleQueryService.findBySlug(slug, user).map(this::responseArticleData)));
   }
 
   private Map<String, Object> responseArticleData(final ArticleData articleData) {

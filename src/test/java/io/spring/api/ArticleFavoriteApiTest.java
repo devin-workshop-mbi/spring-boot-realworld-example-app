@@ -17,7 +17,6 @@ import io.spring.core.favorite.ArticleFavorite;
 import io.spring.core.favorite.ArticleFavoriteRepository;
 import io.spring.core.user.User;
 import java.util.Arrays;
-import java.util.Optional;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,6 +25,7 @@ import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import reactor.core.publisher.Mono;
 
 @WebFluxTest(ArticleFavoriteApi.class)
 @Import({WebSecurityConfig.class, JacksonCustomizations.class})
@@ -45,7 +45,7 @@ public class ArticleFavoriteApiTest extends TestWithCurrentUser {
     super.setUp();
     User anotherUser = new User("other@test.com", "other", "123", "", "");
     article = new Article("title", "desc", "body", Arrays.asList("java"), anotherUser.getId());
-    when(articleRepository.findBySlug(eq(article.getSlug()))).thenReturn(Optional.of(article));
+    when(articleRepository.findBySlug(eq(article.getSlug()))).thenReturn(Mono.just(article));
     ArticleData articleData =
         new ArticleData(
             article.getId(),
@@ -65,11 +65,12 @@ public class ArticleFavoriteApiTest extends TestWithCurrentUser {
                 anotherUser.getImage(),
                 false));
     when(articleQueryService.findBySlug(eq(articleData.getSlug()), eq(user)))
-        .thenReturn(Optional.of(articleData));
+        .thenReturn(Mono.just(articleData));
   }
 
   @Test
   public void should_favorite_an_article_success() throws Exception {
+    when(articleFavoriteRepository.save(any())).thenReturn(Mono.empty());
     client
         .post()
         .uri("/articles/{slug}/favorite", article.getSlug())
@@ -86,8 +87,10 @@ public class ArticleFavoriteApiTest extends TestWithCurrentUser {
 
   @Test
   public void should_unfavorite_an_article_success() throws Exception {
+    ArticleFavorite articleFavorite = new ArticleFavorite(article.getId(), user.getId());
     when(articleFavoriteRepository.find(eq(article.getId()), eq(user.getId())))
-        .thenReturn(Optional.of(new ArticleFavorite(article.getId(), user.getId())));
+        .thenReturn(Mono.just(articleFavorite));
+    when(articleFavoriteRepository.remove(eq(articleFavorite))).thenReturn(Mono.empty());
     client
         .delete()
         .uri("/articles/{slug}/favorite", article.getSlug())
@@ -98,6 +101,6 @@ public class ArticleFavoriteApiTest extends TestWithCurrentUser {
         .expectBody()
         .jsonPath("$.article.id")
         .isEqualTo(article.getId());
-    verify(articleFavoriteRepository).remove(new ArticleFavorite(article.getId(), user.getId()));
+    verify(articleFavoriteRepository).remove(articleFavorite);
   }
 }

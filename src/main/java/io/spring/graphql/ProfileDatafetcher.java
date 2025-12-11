@@ -19,7 +19,9 @@ import io.spring.graphql.types.Comment;
 import io.spring.graphql.types.Profile;
 import io.spring.graphql.types.ProfilePayload;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import lombok.AllArgsConstructor;
+import reactor.core.publisher.Mono;
 
 @DgsComponent
 @AllArgsConstructor
@@ -28,44 +30,46 @@ public class ProfileDatafetcher {
   private ProfileQueryService profileQueryService;
 
   @DgsData(parentType = USER.TYPE_NAME, field = USER.Profile)
-  public Profile getUserProfile(DataFetchingEnvironment dataFetchingEnvironment) {
+  public CompletableFuture<Profile> getUserProfile(DataFetchingEnvironment dataFetchingEnvironment) {
     User user = dataFetchingEnvironment.getLocalContext();
     String username = user.getUsername();
-    return queryProfile(username);
+    return queryProfileMono(username).toFuture();
   }
 
   @DgsData(parentType = ARTICLE.TYPE_NAME, field = ARTICLE.Author)
-  public Profile getAuthor(DataFetchingEnvironment dataFetchingEnvironment) {
+  public CompletableFuture<Profile> getAuthor(DataFetchingEnvironment dataFetchingEnvironment) {
     Map<String, ArticleData> map = dataFetchingEnvironment.getLocalContext();
     Article article = dataFetchingEnvironment.getSource();
-    return queryProfile(map.get(article.getSlug()).getProfileData().getUsername());
+    return queryProfileMono(map.get(article.getSlug()).getProfileData().getUsername()).toFuture();
   }
 
   @DgsData(parentType = COMMENT.TYPE_NAME, field = COMMENT.Author)
-  public Profile getCommentAuthor(DataFetchingEnvironment dataFetchingEnvironment) {
+  public CompletableFuture<Profile> getCommentAuthor(DataFetchingEnvironment dataFetchingEnvironment) {
     Comment comment = dataFetchingEnvironment.getSource();
     Map<String, CommentData> map = dataFetchingEnvironment.getLocalContext();
-    return queryProfile(map.get(comment.getId()).getProfileData().getUsername());
+    return queryProfileMono(map.get(comment.getId()).getProfileData().getUsername()).toFuture();
   }
 
   @DgsData(parentType = DgsConstants.QUERY_TYPE, field = QUERY.Profile)
-  public ProfilePayload queryProfile(
+  public CompletableFuture<ProfilePayload> queryProfile(
       @InputArgument("username") String username, DataFetchingEnvironment dataFetchingEnvironment) {
-    Profile profile = queryProfile(dataFetchingEnvironment.getArgument("username"));
-    return ProfilePayload.newBuilder().profile(profile).build();
+    return queryProfileMono(dataFetchingEnvironment.getArgument("username"))
+        .map(profile -> ProfilePayload.newBuilder().profile(profile).build())
+        .toFuture();
   }
 
-  private Profile queryProfile(String username) {
+  private Mono<Profile> queryProfileMono(String username) {
     User current = SecurityUtil.getCurrentUser().orElse(null);
-    ProfileData profileData =
-        profileQueryService
-            .findByUsername(username, current)
-            .orElseThrow(ResourceNotFoundException::new);
-    return Profile.newBuilder()
-        .username(profileData.getUsername())
-        .bio(profileData.getBio())
-        .image(profileData.getImage())
-        .following(profileData.isFollowing())
-        .build();
+    return profileQueryService
+        .findByUsername(username, current)
+        .switchIfEmpty(Mono.error(new ResourceNotFoundException()))
+        .map(
+            profileData ->
+                Profile.newBuilder()
+                    .username(profileData.getUsername())
+                    .bio(profileData.getBio())
+                    .image(profileData.getImage())
+                    .following(profileData.isFollowing())
+                    .build());
   }
 }

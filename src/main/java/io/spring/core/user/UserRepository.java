@@ -1,21 +1,19 @@
 package io.spring.core.user;
 
-import java.util.Optional;
-import org.springframework.stereotype.Repository;
+import reactor.core.publisher.Mono;
 
-@Repository
 public interface UserRepository {
-  void save(User user);
+  Mono<User> save(User user);
 
-  Optional<User> findById(String id);
+  Mono<User> findById(String id);
 
-  Optional<User> findByUsername(String username);
+  Mono<User> findByUsername(String username);
 
-  Optional<User> findByEmail(String email);
+  Mono<User> findByEmail(String email);
 
-  void saveRelation(FollowRelation followRelation);
+  Mono<Void> saveRelation(FollowRelation followRelation);
 
-  Optional<FollowRelation> findRelation(String userId, String targetId);
+  Mono<FollowRelation> findRelation(String userId, String targetId);
 
-  void removeRelation(FollowRelation followRelation);
+  Mono<Void> removeRelation(FollowRelation followRelation);
 }

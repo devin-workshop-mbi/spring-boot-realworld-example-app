@@ -7,7 +7,6 @@ import graphql.execution.DataFetcherResult;
 import io.spring.api.exception.NoAuthorizationException;
 import io.spring.api.exception.ResourceNotFoundException;
 import io.spring.application.CommentQueryService;
-import io.spring.application.data.CommentData;
 import io.spring.core.article.Article;
 import io.spring.core.article.ArticleRepository;
 import io.spring.core.comment.Comment;
@@ -18,7 +17,9 @@ import io.spring.graphql.DgsConstants.MUTATION;
 import io.spring.graphql.exception.AuthenticationException;
 import io.spring.graphql.types.CommentPayload;
 import io.spring.graphql.types.DeletionStatus;
+import java.util.concurrent.CompletableFuture;
 import lombok.AllArgsConstructor;
+import reactor.core.publisher.Mono;
 
 @DgsComponent
 @AllArgsConstructor
@@ -29,40 +30,53 @@ public class CommentMutation {
   private CommentQueryService commentQueryService;
 
   @DgsData(parentType = MUTATION.TYPE_NAME, field = MUTATION.AddComment)
-  public DataFetcherResult<CommentPayload> createComment(
+  public CompletableFuture<DataFetcherResult<CommentPayload>> createComment(
       @InputArgument("slug") String slug, @InputArgument("body") String body) {
     User user = SecurityUtil.getCurrentUser().orElseThrow(AuthenticationException::new);
-    Article article =
-        articleRepository.findBySlug(slug).orElseThrow(ResourceNotFoundException::new);
-    Comment comment = new Comment(body, user.getId(), article.getId());
-    commentRepository.save(comment);
-    CommentData commentData =
-        commentQueryService
-            .findById(comment.getId(), user)
-            .orElseThrow(ResourceNotFoundException::new);
-    return DataFetcherResult.<CommentPayload>newResult()
-        .localContext(commentData)
-        .data(CommentPayload.newBuilder().build())
-        .build();
+    return articleRepository
+        .findBySlug(slug)
+        .switchIfEmpty(Mono.error(new ResourceNotFoundException()))
+        .flatMap(
+            article -> {
+              Comment comment = new Comment(body, user.getId(), article.getId());
+              return commentRepository
+                  .save(comment)
+                  .flatMap(
+                      savedComment ->
+                          commentQueryService
+                              .findById(savedComment.getId(), user)
+                              .switchIfEmpty(Mono.error(new ResourceNotFoundException())));
+            })
+        .map(
+            commentData ->
+                DataFetcherResult.<CommentPayload>newResult()
+                    .localContext(commentData)
+                    .data(CommentPayload.newBuilder().build())
+                    .build())
+        .toFuture();
   }
 
   @DgsData(parentType = MUTATION.TYPE_NAME, field = MUTATION.DeleteComment)
-  public DeletionStatus removeComment(
+  public CompletableFuture<DeletionStatus> removeComment(
       @InputArgument("slug") String slug, @InputArgument("id") String commentId) {
     User user = SecurityUtil.getCurrentUser().orElseThrow(AuthenticationException::new);
-
-    Article article =
-        articleRepository.findBySlug(slug).orElseThrow(ResourceNotFoundException::new);
-    return commentRepository
-        .findById(article.getId(), commentId)
-        .map(
-            comment -> {
-              if (!AuthorizationService.canWriteComment(user, article, comment)) {
-                throw new NoAuthorizationException();
-              }
-              commentRepository.remove(comment);
-              return DeletionStatus.newBuilder().success(true).build();
-            })
-        .orElseThrow(ResourceNotFoundException::new);
+    return articleRepository
+        .findBySlug(slug)
+        .switchIfEmpty(Mono.error(new ResourceNotFoundException()))
+        .flatMap(
+            article ->
+                commentRepository
+                    .findById(article.getId(), commentId)
+                    .switchIfEmpty(Mono.error(new ResourceNotFoundException()))
+                    .flatMap(
+                        comment -> {
+                          if (!AuthorizationService.canWriteComment(user, article, comment)) {
+                            return Mono.error(new NoAuthorizationException());
+                          }
+                          return commentRepository
+                              .remove(comment)
+                              .thenReturn(DeletionStatus.newBuilder().success(true).build());
+                        }))
+        .toFuture();
   }
 }

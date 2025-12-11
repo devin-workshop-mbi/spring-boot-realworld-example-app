@@ -24,7 +24,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
 
 @RestController
 @RequestMapping(path = "/articles/{slug}")
@@ -37,13 +36,10 @@ public class ArticleApi {
   @GetMapping
   public Mono<Map<String, Object>> article(
       @PathVariable("slug") String slug, @AuthenticationPrincipal User user) {
-    return Mono.fromCallable(
-            () ->
-                articleQueryService
-                    .findBySlug(slug, user)
-                    .map(this::articleResponse)
-                    .orElseThrow(ResourceNotFoundException::new))
-        .subscribeOn(Schedulers.boundedElastic());
+    return articleQueryService
+        .findBySlug(slug, user)
+        .switchIfEmpty(Mono.error(new ResourceNotFoundException()))
+        .map(this::articleResponse);
   }
 
   @PutMapping
@@ -51,39 +47,38 @@ public class ArticleApi {
       @PathVariable("slug") String slug,
       @AuthenticationPrincipal User user,
       @Valid @RequestBody UpdateArticleParam updateArticleParam) {
-    return Mono.fromCallable(
-            () ->
-                articleRepository
-                    .findBySlug(slug)
-                    .map(
-                        article -> {
-                          if (!AuthorizationService.canWriteArticle(user, article)) {
-                            throw new NoAuthorizationException();
-                          }
-                          var updatedArticle =
-                              articleCommandService.updateArticle(article, updateArticleParam);
-                          return articleResponse(
-                              articleQueryService.findBySlug(updatedArticle.getSlug(), user).get());
-                        })
-                    .orElseThrow(ResourceNotFoundException::new))
-        .subscribeOn(Schedulers.boundedElastic());
+    return articleRepository
+        .findBySlug(slug)
+        .switchIfEmpty(Mono.error(new ResourceNotFoundException()))
+        .flatMap(
+            article -> {
+              if (!AuthorizationService.canWriteArticle(user, article)) {
+                return Mono.error(new NoAuthorizationException());
+              }
+              return articleCommandService
+                  .updateArticle(article, updateArticleParam)
+                  .flatMap(
+                      updatedArticle ->
+                          articleQueryService
+                              .findBySlug(updatedArticle.getSlug(), user)
+                              .map(this::articleResponse));
+            });
   }
 
   @DeleteMapping
   @ResponseStatus(HttpStatus.NO_CONTENT)
   public Mono<Void> deleteArticle(
       @PathVariable("slug") String slug, @AuthenticationPrincipal User user) {
-    return Mono.<Void>fromCallable(
-            () -> {
-              var article =
-                  articleRepository.findBySlug(slug).orElseThrow(ResourceNotFoundException::new);
+    return articleRepository
+        .findBySlug(slug)
+        .switchIfEmpty(Mono.error(new ResourceNotFoundException()))
+        .flatMap(
+            article -> {
               if (!AuthorizationService.canWriteArticle(user, article)) {
-                throw new NoAuthorizationException();
+                return Mono.error(new NoAuthorizationException());
               }
-              articleRepository.remove(article);
-              return null;
-            })
-        .subscribeOn(Schedulers.boundedElastic());
+              return articleRepository.remove(article);
+            });
   }
 
   private Map<String, Object> articleResponse(ArticleData articleData) {

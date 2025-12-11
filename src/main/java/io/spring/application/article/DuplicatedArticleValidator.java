@@ -13,6 +13,7 @@ class DuplicatedArticleValidator
 
   @Override
   public boolean isValid(String value, ConstraintValidatorContext context) {
-    return !articleQueryService.findBySlug(Article.toSlug(value), null).isPresent();
+    // Block here since ConstraintValidator is synchronous by design
+    return articleQueryService.findBySlug(Article.toSlug(value), null).blockOptional().isEmpty();
   }
 }

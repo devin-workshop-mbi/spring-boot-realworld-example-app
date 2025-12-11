@@ -1,14 +1,14 @@
 package io.spring.core.article;
 
-import java.util.Optional;
+import reactor.core.publisher.Mono;
 
 public interface ArticleRepository {
 
-  void save(Article article);
+  Mono<Article> save(Article article);
 
-  Optional<Article> findById(String id);
+  Mono<Article> findById(String id);
 
-  Optional<Article> findBySlug(String slug);
+  Mono<Article> findBySlug(String slug);
 
-  void remove(Article article);
+  Mono<Void> remove(Article article);
 }

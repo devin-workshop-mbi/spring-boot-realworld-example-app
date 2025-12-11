@@ -11,6 +11,7 @@ import io.spring.core.comment.CommentRepository;
 import io.spring.core.service.AuthorizationService;
 import io.spring.core.user.User;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import javax.validation.Valid;
 import javax.validation.constraints.NotBlank;
@@ -28,7 +29,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
 
 @RestController
 @RequestMapping(path = "/articles/{slug}/comments")
@@ -44,30 +44,40 @@ public class CommentsApi {
       @PathVariable("slug") String slug,
       @AuthenticationPrincipal User user,
       @Valid @RequestBody NewCommentParam newCommentParam) {
-    return Mono.fromCallable(
-            () -> {
-              var article =
-                  articleRepository.findBySlug(slug).orElseThrow(ResourceNotFoundException::new);
-              Comment comment = new Comment(newCommentParam.getBody(), user.getId(), article.getId());
-              commentRepository.save(comment);
-              return commentResponse(commentQueryService.findById(comment.getId(), user).get());
-            })
-        .subscribeOn(Schedulers.boundedElastic());
+    return articleRepository
+        .findBySlug(slug)
+        .switchIfEmpty(Mono.error(new ResourceNotFoundException()))
+        .flatMap(
+            article -> {
+              Comment comment =
+                  new Comment(newCommentParam.getBody(), user.getId(), article.getId());
+              return commentRepository
+                  .save(comment)
+                  .flatMap(
+                      savedComment ->
+                          commentQueryService
+                              .findById(savedComment.getId(), user)
+                              .map(this::commentResponse));
+            });
   }
 
   @GetMapping
   public Mono<Map<String, Object>> getComments(
       @PathVariable("slug") String slug, @AuthenticationPrincipal User user) {
-    return Mono.fromCallable(
-            () -> {
-              var article =
-                  articleRepository.findBySlug(slug).orElseThrow(ResourceNotFoundException::new);
-              var comments = commentQueryService.findByArticleId(article.getId(), user);
-              Map<String, Object> response = new HashMap<>();
-              response.put("comments", comments);
-              return response;
-            })
-        .subscribeOn(Schedulers.boundedElastic());
+    return articleRepository
+        .findBySlug(slug)
+        .switchIfEmpty(Mono.error(new ResourceNotFoundException()))
+        .flatMap(
+            article ->
+                commentQueryService
+                    .findByArticleId(article.getId(), user)
+                    .collectList()
+                    .map(
+                        comments -> {
+                          Map<String, Object> response = new HashMap<>();
+                          response.put("comments", comments);
+                          return response;
+                        }));
   }
 
   @DeleteMapping(path = "{id}")
@@ -76,21 +86,21 @@ public class CommentsApi {
       @PathVariable("slug") String slug,
       @PathVariable("id") String commentId,
       @AuthenticationPrincipal User user) {
-    return Mono.<Void>fromCallable(
-            () -> {
-              var article =
-                  articleRepository.findBySlug(slug).orElseThrow(ResourceNotFoundException::new);
-              var comment =
-                  commentRepository
-                      .findById(article.getId(), commentId)
-                      .orElseThrow(ResourceNotFoundException::new);
-              if (!AuthorizationService.canWriteComment(user, article, comment)) {
-                throw new NoAuthorizationException();
-              }
-              commentRepository.remove(comment);
-              return null;
-            })
-        .subscribeOn(Schedulers.boundedElastic());
+    return articleRepository
+        .findBySlug(slug)
+        .switchIfEmpty(Mono.error(new ResourceNotFoundException()))
+        .flatMap(
+            article ->
+                commentRepository
+                    .findById(article.getId(), commentId)
+                    .switchIfEmpty(Mono.error(new ResourceNotFoundException()))
+                    .flatMap(
+                        comment -> {
+                          if (!AuthorizationService.canWriteComment(user, article, comment)) {
+                            return Mono.error(new NoAuthorizationException());
+                          }
+                          return commentRepository.remove(comment);
+                        }));
   }
 
   private Map<String, Object> commentResponse(CommentData commentData) {
