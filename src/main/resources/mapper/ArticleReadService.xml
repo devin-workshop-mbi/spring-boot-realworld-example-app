@@ -157,4 +157,17 @@
     <resultMap id="articleId" type="string">
         <id javaType="string" column="articleId"/>
     </resultMap>
+    <select id="queryTopArticles" resultMap="articleId">
+        select
+        A.id articleId
+        from
+        articles A
+        left join article_favorites AF on AF.article_id = A.id
+        group by A.id
+        order by count(AF.user_id) desc, A.created_at desc
+        limit #{page.offset}, #{page.limit}
+    </select>
+    <select id="countAllArticles" resultType="java.lang.Integer">
+        select count(1) from articles
+    </select>
 </mapper>

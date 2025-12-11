@@ -122,6 +122,25 @@ public class ArticleQueryService {
     }
   }
 
+  /**
+   * Finds top articles sorted by favorites count in descending order.
+   *
+   * @param page pagination parameters (offset and limit)
+   * @param currentUser the current user for filling extra info (can be null)
+   * @return ArticleDataList containing top articles and total count
+   */
+  public ArticleDataList findTopArticles(Page page, User currentUser) {
+    List<String> articleIds = articleReadService.queryTopArticles(page);
+    int articleCount = articleReadService.countAllArticles();
+    if (articleIds.size() == 0) {
+      return new ArticleDataList(new ArrayList<>(), articleCount);
+    } else {
+      List<ArticleData> articles = articleReadService.findArticles(articleIds);
+      fillExtraInfo(articles, currentUser);
+      return new ArticleDataList(articles, articleCount);
+    }
+  }
+
   private void fillExtraInfo(List<ArticleData> articles, User currentUser) {
     setFavoriteCount(articles);
     if (currentUser != null) {

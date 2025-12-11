@@ -45,6 +45,22 @@ public class ArticlesApi {
     return ResponseEntity.ok(articleQueryService.findUserFeed(user, new Page(offset, limit)));
   }
 
+  /**
+   * Returns top articles sorted by favorites count in descending order.
+   *
+   * @param offset pagination offset (default 0)
+   * @param limit pagination limit (default 10)
+   * @param user the current authenticated user (optional)
+   * @return top articles sorted by favorites count
+   */
+  @GetMapping(path = "top")
+  public ResponseEntity getTopArticles(
+      @RequestParam(value = "offset", defaultValue = "0") int offset,
+      @RequestParam(value = "limit", defaultValue = "10") int limit,
+      @AuthenticationPrincipal User user) {
+    return ResponseEntity.ok(articleQueryService.findTopArticles(new Page(offset, limit), user));
+  }
+
   @GetMapping
   public ResponseEntity getArticles(
       @RequestParam(value = "offset", defaultValue = "0") int offset,
