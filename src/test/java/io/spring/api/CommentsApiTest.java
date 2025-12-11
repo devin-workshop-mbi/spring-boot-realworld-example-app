@@ -1,13 +1,10 @@
 package io.spring.api;
 
-import static io.restassured.module.mockmvc.RestAssuredMockMvc.given;
-import static org.hamcrest.core.IsEqual.equalTo;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
-import io.restassured.module.mockmvc.RestAssuredMockMvc;
 import io.spring.JacksonCustomizations;
 import io.spring.api.security.WebSecurityConfig;
 import io.spring.application.CommentQueryService;
@@ -25,12 +22,15 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
-import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.reactive.server.WebTestClient;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
-@WebMvcTest(CommentsApi.class)
+@WebFluxTest(CommentsApi.class)
 @Import({WebSecurityConfig.class, JacksonCustomizations.class})
 public class CommentsApiTest extends TestWithCurrentUser {
 
@@ -42,14 +42,13 @@ public class CommentsApiTest extends TestWithCurrentUser {
   private Article article;
   private CommentData commentData;
   private Comment comment;
-  @Autowired private MockMvc mvc;
+  @Autowired private WebTestClient client;
 
   @BeforeEach
   public void setUp() throws Exception {
-    RestAssuredMockMvc.mockMvc(mvc);
     super.setUp();
     article = new Article("title", "desc", "body", Arrays.asList("test", "java"), user.getId());
-    when(articleRepository.findBySlug(eq(article.getSlug()))).thenReturn(Optional.of(article));
+    when(articleRepository.findBySlug(eq(article.getSlug()))).thenReturn(Mono.just(article));
     comment = new Comment("comment", user.getId(), article.getId());
     commentData =
         new CommentData(
@@ -77,17 +76,21 @@ public class CommentsApiTest extends TestWithCurrentUser {
           }
         };
 
-    when(commentQueryService.findById(anyString(), eq(user))).thenReturn(Optional.of(commentData));
+    when(commentRepository.save(any(Comment.class))).thenReturn(Mono.just(comment));
+    when(commentQueryService.findById(anyString(), eq(user))).thenReturn(Mono.just(commentData));
 
-    given()
-        .contentType("application/json")
+    client
+        .post()
+        .uri("/articles/{slug}/comments", article.getSlug())
+        .contentType(MediaType.APPLICATION_JSON)
         .header("Authorization", "Token " + token)
-        .body(param)
-        .when()
-        .post("/articles/{slug}/comments", article.getSlug())
-        .then()
-        .statusCode(201)
-        .body("comment.body", equalTo(commentData.getBody()));
+        .bodyValue(param)
+        .exchange()
+        .expectStatus()
+        .isCreated()
+        .expectBody()
+        .jsonPath("$.comment.body")
+        .isEqualTo(commentData.getBody());
   }
 
   @Test
@@ -105,40 +108,48 @@ public class CommentsApiTest extends TestWithCurrentUser {
           }
         };
 
-    given()
-        .contentType("application/json")
+    client
+        .post()
+        .uri("/articles/{slug}/comments", article.getSlug())
+        .contentType(MediaType.APPLICATION_JSON)
         .header("Authorization", "Token " + token)
-        .body(param)
-        .when()
-        .post("/articles/{slug}/comments", article.getSlug())
-        .then()
-        .statusCode(422)
-        .body("errors.body[0]", equalTo("can't be empty"));
+        .bodyValue(param)
+        .exchange()
+        .expectStatus()
+        .isEqualTo(422)
+        .expectBody()
+        .jsonPath("$.errors.body[0]")
+        .isEqualTo("can't be empty");
   }
 
   @Test
   public void should_get_comments_of_article_success() throws Exception {
     when(commentQueryService.findByArticleId(anyString(), eq(null)))
-        .thenReturn(Arrays.asList(commentData));
-    RestAssuredMockMvc.when()
-        .get("/articles/{slug}/comments", article.getSlug())
-        .prettyPeek()
-        .then()
-        .statusCode(200)
-        .body("comments[0].id", equalTo(commentData.getId()));
+        .thenReturn(Flux.just(commentData));
+    client
+        .get()
+        .uri("/articles/{slug}/comments", article.getSlug())
+        .exchange()
+        .expectStatus()
+        .isOk()
+        .expectBody()
+        .jsonPath("$.comments[0].id")
+        .isEqualTo(commentData.getId());
   }
 
   @Test
   public void should_delete_comment_success() throws Exception {
     when(commentRepository.findById(eq(article.getId()), eq(comment.getId())))
-        .thenReturn(Optional.of(comment));
+        .thenReturn(Mono.just(comment));
+    when(commentRepository.remove(eq(comment))).thenReturn(Mono.empty());
 
-    given()
+    client
+        .delete()
+        .uri("/articles/{slug}/comments/{id}", article.getSlug(), comment.getId())
         .header("Authorization", "Token " + token)
-        .when()
-        .delete("/articles/{slug}/comments/{id}", article.getSlug(), comment.getId())
-        .then()
-        .statusCode(204);
+        .exchange()
+        .expectStatus()
+        .isNoContent();
   }
 
   @Test
@@ -146,20 +157,21 @@ public class CommentsApiTest extends TestWithCurrentUser {
       throws Exception {
     User anotherUser = new User("other@example.com", "other", "123", "", "");
     when(userRepository.findByUsername(eq(anotherUser.getUsername())))
-        .thenReturn(Optional.of(anotherUser));
+        .thenReturn(Mono.just(anotherUser));
     when(jwtService.getSubFromToken(any())).thenReturn(Optional.of(anotherUser.getId()));
     when(userRepository.findById(eq(anotherUser.getId())))
-        .thenReturn(Optional.ofNullable(anotherUser));
+        .thenReturn(Mono.just(anotherUser));
 
     when(commentRepository.findById(eq(article.getId()), eq(comment.getId())))
-        .thenReturn(Optional.of(comment));
+        .thenReturn(Mono.just(comment));
     String token = jwtService.toToken(anotherUser);
-    when(userRepository.findById(eq(anotherUser.getId()))).thenReturn(Optional.of(anotherUser));
-    given()
+    when(userRepository.findById(eq(anotherUser.getId()))).thenReturn(Mono.just(anotherUser));
+    client
+        .delete()
+        .uri("/articles/{slug}/comments/{id}", article.getSlug(), comment.getId())
         .header("Authorization", "Token " + token)
-        .when()
-        .delete("/articles/{slug}/comments/{id}", article.getSlug(), comment.getId())
-        .then()
-        .statusCode(403);
+        .exchange()
+        .expectStatus()
+        .isForbidden();
   }
 }

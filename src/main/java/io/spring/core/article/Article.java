@@ -10,19 +10,28 @@ import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.joda.time.DateTime;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.annotation.Transient;
+import org.springframework.data.relational.core.mapping.Column;
+import org.springframework.data.relational.core.mapping.Table;
 
 @Getter
 @NoArgsConstructor
 @EqualsAndHashCode(of = {"id"})
+@Table("articles")
 public class Article {
+  @Column("user_id")
   private String userId;
-  private String id;
+
+  @Id private String id;
   private String slug;
   private String title;
   private String description;
   private String body;
-  private List<Tag> tags;
+  @Transient private List<Tag> tags;
+  @Column("created_at")
   private DateTime createdAt;
+  @Column("updated_at")
   private DateTime updatedAt;
 
   public Article(

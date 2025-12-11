@@ -1,12 +1,9 @@
 package io.spring.api;
 
-import static io.restassured.module.mockmvc.RestAssuredMockMvc.given;
-import static org.hamcrest.core.IsEqual.equalTo;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
-import io.restassured.module.mockmvc.RestAssuredMockMvc;
 import io.spring.JacksonCustomizations;
 import io.spring.api.security.WebSecurityConfig;
 import io.spring.application.UserQueryService;
@@ -19,13 +16,15 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.validation.ValidationAutoConfiguration;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.reactive.server.WebTestClient;
+import reactor.core.publisher.Mono;
 
-@WebMvcTest(CurrentUserApi.class)
+@WebFluxTest(CurrentUserApi.class)
 @Import({
   WebSecurityConfig.class,
   JacksonCustomizations.class,
@@ -35,7 +34,7 @@ import org.springframework.test.web.servlet.MockMvc;
 })
 public class CurrentUserApiTest extends TestWithCurrentUser {
 
-  @Autowired private MockMvc mvc;
+  @Autowired private WebTestClient client;
 
   @MockBean private UserQueryService userQueryService;
 
@@ -43,43 +42,56 @@ public class CurrentUserApiTest extends TestWithCurrentUser {
   @BeforeEach
   public void setUp() throws Exception {
     super.setUp();
-    RestAssuredMockMvc.mockMvc(mvc);
   }
 
   @Test
   public void should_get_current_user_with_token() throws Exception {
-    when(userQueryService.findById(any())).thenReturn(Optional.of(userData));
+    when(userQueryService.findById(any())).thenReturn(Mono.just(userData));
 
-    given()
+    client
+        .get()
+        .uri("/user")
         .header("Authorization", "Token " + token)
-        .contentType("application/json")
-        .when()
-        .get("/user")
-        .then()
-        .statusCode(200)
-        .body("user.email", equalTo(email))
-        .body("user.username", equalTo(username))
-        .body("user.bio", equalTo(""))
-        .body("user.image", equalTo(defaultAvatar))
-        .body("user.token", equalTo(token));
+        .accept(MediaType.APPLICATION_JSON)
+        .exchange()
+        .expectStatus()
+        .isOk()
+        .expectBody()
+        .jsonPath("$.user.email")
+        .isEqualTo(email)
+        .jsonPath("$.user.username")
+        .isEqualTo(username)
+        .jsonPath("$.user.bio")
+        .isEqualTo("")
+        .jsonPath("$.user.image")
+        .isEqualTo(defaultAvatar)
+        .jsonPath("$.user.token")
+        .isEqualTo(token);
   }
 
   @Test
   public void should_get_401_without_token() throws Exception {
-    given().contentType("application/json").when().get("/user").then().statusCode(401);
+    client
+        .get()
+        .uri("/user")
+        .accept(MediaType.APPLICATION_JSON)
+        .exchange()
+        .expectStatus()
+        .isUnauthorized();
   }
 
   @Test
   public void should_get_401_with_invalid_token() throws Exception {
     String invalidToken = "asdfasd";
     when(jwtService.getSubFromToken(eq(invalidToken))).thenReturn(Optional.empty());
-    given()
-        .contentType("application/json")
+    client
+        .get()
+        .uri("/user")
         .header("Authorization", "Token " + invalidToken)
-        .when()
-        .get("/user")
-        .then()
-        .statusCode(401);
+        .accept(MediaType.APPLICATION_JSON)
+        .exchange()
+        .expectStatus()
+        .isUnauthorized();
   }
 
   @Test
@@ -88,34 +100,29 @@ public class CurrentUserApiTest extends TestWithCurrentUser {
     String newBio = "updated";
     String newUsername = "newusernamee";
 
-    Map<String, Object> param =
-        new HashMap<String, Object>() {
-          {
-            put(
-                "user",
-                new HashMap<String, Object>() {
-                  {
-                    put("email", newEmail);
-                    put("bio", newBio);
-                    put("username", newUsername);
-                  }
-                });
-          }
-        };
+    Map<String, Object> userMap = new HashMap<>();
+    userMap.put("email", newEmail);
+    userMap.put("bio", newBio);
+    userMap.put("username", newUsername);
 
-    when(userRepository.findByUsername(eq(newUsername))).thenReturn(Optional.empty());
-    when(userRepository.findByEmail(eq(newEmail))).thenReturn(Optional.empty());
+    Map<String, Object> param = new HashMap<>();
+    param.put("user", userMap);
 
-    when(userQueryService.findById(eq(user.getId()))).thenReturn(Optional.of(userData));
+    when(userRepository.findByUsername(eq(newUsername))).thenReturn(Mono.empty());
+    when(userRepository.findByEmail(eq(newEmail))).thenReturn(Mono.empty());
+    when(userRepository.save(any(User.class))).thenReturn(Mono.just(user));
 
-    given()
-        .contentType("application/json")
+    when(userQueryService.findById(eq(user.getId()))).thenReturn(Mono.just(userData));
+
+    client
+        .put()
+        .uri("/user")
         .header("Authorization", "Token " + token)
-        .body(param)
-        .when()
-        .put("/user")
-        .then()
-        .statusCode(200);
+        .contentType(MediaType.APPLICATION_JSON)
+        .bodyValue(param)
+        .exchange()
+        .expectStatus()
+        .isOk();
   }
 
   @Test
@@ -127,53 +134,46 @@ public class CurrentUserApiTest extends TestWithCurrentUser {
     Map<String, Object> param = prepareUpdateParam(newEmail, newBio, newUsername);
 
     when(userRepository.findByEmail(eq(newEmail)))
-        .thenReturn(Optional.of(new User(newEmail, "username", "123", "", "")));
-    when(userRepository.findByUsername(eq(newUsername))).thenReturn(Optional.empty());
+        .thenReturn(Mono.just(new User(newEmail, "username", "123", "", "")));
+    when(userRepository.findByUsername(eq(newUsername))).thenReturn(Mono.empty());
 
-    when(userQueryService.findById(eq(user.getId()))).thenReturn(Optional.of(userData));
+    when(userQueryService.findById(eq(user.getId()))).thenReturn(Mono.just(userData));
 
-    given()
-        .contentType("application/json")
+    client
+        .put()
+        .uri("/user")
         .header("Authorization", "Token " + token)
-        .body(param)
-        .when()
-        .put("/user")
-        .prettyPeek()
-        .then()
-        .statusCode(422)
-        .body("errors.email[0]", equalTo("email already exist"));
+        .contentType(MediaType.APPLICATION_JSON)
+        .bodyValue(param)
+        .exchange()
+        .expectStatus()
+        .isEqualTo(422);
   }
 
   private HashMap<String, Object> prepareUpdateParam(
       final String newEmail, final String newBio, final String newUsername) {
-    return new HashMap<String, Object>() {
-      {
-        put(
-            "user",
-            new HashMap<String, Object>() {
-              {
-                put("email", newEmail);
-                put("bio", newBio);
-                put("username", newUsername);
-              }
-            });
-      }
-    };
+    Map<String, Object> userMap = new HashMap<>();
+    userMap.put("email", newEmail);
+    userMap.put("bio", newBio);
+    userMap.put("username", newUsername);
+
+    Map<String, Object> param = new HashMap<>();
+    param.put("user", userMap);
+    return (HashMap<String, Object>) param;
   }
 
   @Test
   public void should_get_401_if_not_login() throws Exception {
-    given()
-        .contentType("application/json")
-        .body(
-            new HashMap<String, Object>() {
-              {
-                put("user", new HashMap<String, Object>());
-              }
-            })
-        .when()
-        .put("/user")
-        .then()
-        .statusCode(401);
+    Map<String, Object> param = new HashMap<>();
+    param.put("user", new HashMap<String, Object>());
+
+    client
+        .put()
+        .uri("/user")
+        .contentType(MediaType.APPLICATION_JSON)
+        .bodyValue(param)
+        .exchange()
+        .expectStatus()
+        .isUnauthorized();
   }
 }

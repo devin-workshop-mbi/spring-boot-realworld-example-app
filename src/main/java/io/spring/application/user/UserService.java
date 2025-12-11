@@ -2,20 +2,13 @@ package io.spring.application.user;
 
 import io.spring.core.user.User;
 import io.spring.core.user.UserRepository;
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
-import javax.validation.Constraint;
-import javax.validation.ConstraintValidator;
-import javax.validation.ConstraintValidatorContext;
-import javax.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.validation.annotation.Validated;
+import reactor.core.publisher.Mono;
 
 @Service
-@Validated
 public class UserService {
   private UserRepository userRepository;
   private String defaultImage;
@@ -31,7 +24,7 @@ public class UserService {
     this.passwordEncoder = passwordEncoder;
   }
 
-  public User createUser(@Valid RegisterParam registerParam) {
+  public Mono<User> createUser(RegisterParam registerParam) {
     User user =
         new User(
             registerParam.getEmail(),
@@ -39,11 +32,10 @@ public class UserService {
             passwordEncoder.encode(registerParam.getPassword()),
             "",
             defaultImage);
-    userRepository.save(user);
-    return user;
+    return userRepository.save(user);
   }
 
-  public void updateUser(@Valid UpdateUserCommand command) {
+  public Mono<User> updateUser(UpdateUserCommand command) {
     User user = command.getTargetUser();
     UpdateUserParam updateUserParam = command.getParam();
     user.update(
@@ -52,55 +44,20 @@ public class UserService {
         updateUserParam.getPassword(),
         updateUserParam.getBio(),
         updateUserParam.getImage());
-    userRepository.save(user);
+    return userRepository.save(user);
   }
-}
 
-@Constraint(validatedBy = UpdateUserValidator.class)
-@Retention(RetentionPolicy.RUNTIME)
-@interface UpdateUserConstraint {
+  public Mono<Boolean> checkEmailUnique(String email, User targetUser) {
+    return userRepository
+        .findByEmail(email)
+        .map(user -> user.equals(targetUser))
+        .defaultIfEmpty(true);
+  }
 
-  String message() default "invalid update param";
-
-  Class[] groups() default {};
-
-  Class[] payload() default {};
-}
-
-class UpdateUserValidator implements ConstraintValidator<UpdateUserConstraint, UpdateUserCommand> {
-
-  @Autowired private UserRepository userRepository;
-
-  @Override
-  public boolean isValid(UpdateUserCommand value, ConstraintValidatorContext context) {
-    String inputEmail = value.getParam().getEmail();
-    String inputUsername = value.getParam().getUsername();
-    final User targetUser = value.getTargetUser();
-
-    boolean isEmailValid =
-        userRepository.findByEmail(inputEmail).map(user -> user.equals(targetUser)).orElse(true);
-    boolean isUsernameValid =
-        userRepository
-            .findByUsername(inputUsername)
-            .map(user -> user.equals(targetUser))
-            .orElse(true);
-    if (isEmailValid && isUsernameValid) {
-      return true;
-    } else {
-      context.disableDefaultConstraintViolation();
-      if (!isEmailValid) {
-        context
-            .buildConstraintViolationWithTemplate("email already exist")
-            .addPropertyNode("email")
-            .addConstraintViolation();
-      }
-      if (!isUsernameValid) {
-        context
-            .buildConstraintViolationWithTemplate("username already exist")
-            .addPropertyNode("username")
-            .addConstraintViolation();
-      }
-      return false;
-    }
+  public Mono<Boolean> checkUsernameUnique(String username, User targetUser) {
+    return userRepository
+        .findByUsername(username)
+        .map(user -> user.equals(targetUser))
+        .defaultIfEmpty(true);
   }
 }

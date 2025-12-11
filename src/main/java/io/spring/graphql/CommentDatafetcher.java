@@ -23,9 +23,11 @@ import io.spring.graphql.types.CommentEdge;
 import io.spring.graphql.types.CommentsConnection;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import lombok.AllArgsConstructor;
 import org.joda.time.format.ISODateTimeFormat;
+import reactor.core.publisher.Mono;
 
 @DgsComponent
 @AllArgsConstructor
@@ -48,7 +50,7 @@ public class CommentDatafetcher {
   }
 
   @DgsData(parentType = ARTICLE.TYPE_NAME, field = ARTICLE.Comments)
-  public DataFetcherResult<CommentsConnection> articleComments(
+  public CompletableFuture<DataFetcherResult<CommentsConnection>> articleComments(
       @InputArgument("first") Integer first,
       @InputArgument("after") String after,
       @InputArgument("last") Integer last,
@@ -56,7 +58,7 @@ public class CommentDatafetcher {
       DgsDataFetchingEnvironment dfe) {
 
     if (first == null && last == null) {
-      throw new IllegalArgumentException("first 和 last 必须只存在一个");
+      throw new IllegalArgumentException("first and last must have one present");
     }
 
     User current = SecurityUtil.getCurrentUser().orElse(null);
@@ -64,39 +66,46 @@ public class CommentDatafetcher {
     Map<String, ArticleData> map = dfe.getLocalContext();
     ArticleData articleData = map.get(article.getSlug());
 
-    CursorPager<CommentData> comments;
+    Mono<CursorPager<CommentData>> commentsMono;
     if (first != null) {
-      comments =
+      commentsMono =
           commentQueryService.findByArticleIdWithCursor(
               articleData.getId(),
               current,
               new CursorPageParameter<>(DateTimeCursor.parse(after), first, Direction.NEXT));
     } else {
-      comments =
+      commentsMono =
           commentQueryService.findByArticleIdWithCursor(
               articleData.getId(),
               current,
               new CursorPageParameter<>(DateTimeCursor.parse(before), last, Direction.PREV));
     }
-    graphql.relay.PageInfo pageInfo = buildCommentPageInfo(comments);
-    CommentsConnection result =
-        CommentsConnection.newBuilder()
-            .pageInfo(pageInfo)
-            .edges(
-                comments.getData().stream()
-                    .map(
-                        a ->
-                            CommentEdge.newBuilder()
-                                .cursor(a.getCursor().toString())
-                                .node(buildCommentResult(a))
-                                .build())
-                    .collect(Collectors.toList()))
-            .build();
-    return DataFetcherResult.<CommentsConnection>newResult()
-        .data(result)
-        .localContext(
-            comments.getData().stream().collect(Collectors.toMap(CommentData::getId, c -> c)))
-        .build();
+
+    return commentsMono
+        .map(
+            comments -> {
+              graphql.relay.PageInfo pageInfo = buildCommentPageInfo(comments);
+              CommentsConnection result =
+                  CommentsConnection.newBuilder()
+                      .pageInfo(pageInfo)
+                      .edges(
+                          comments.getData().stream()
+                              .map(
+                                  a ->
+                                      CommentEdge.newBuilder()
+                                          .cursor(a.getCursor().toString())
+                                          .node(buildCommentResult(a))
+                                          .build())
+                              .collect(Collectors.toList()))
+                      .build();
+              return DataFetcherResult.<CommentsConnection>newResult()
+                  .data(result)
+                  .localContext(
+                      comments.getData().stream()
+                          .collect(Collectors.toMap(CommentData::getId, c -> c)))
+                  .build();
+            })
+        .toFuture();
   }
 
   private DefaultPageInfo buildCommentPageInfo(CursorPager<CommentData> comments) {

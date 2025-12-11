@@ -1,14 +1,11 @@
 package io.spring.api;
 
-import static io.restassured.module.mockmvc.RestAssuredMockMvc.given;
 import static java.util.Arrays.asList;
-import static org.hamcrest.core.IsEqual.equalTo;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import io.restassured.module.mockmvc.RestAssuredMockMvc;
 import io.spring.JacksonCustomizations;
 import io.spring.api.security.WebSecurityConfig;
 import io.spring.application.ArticleQueryService;
@@ -19,20 +16,21 @@ import io.spring.core.article.Article;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import org.joda.time.DateTime;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
-import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.reactive.server.WebTestClient;
+import reactor.core.publisher.Mono;
 
-@WebMvcTest({ArticlesApi.class})
+@WebFluxTest({ArticlesApi.class})
 @Import({WebSecurityConfig.class, JacksonCustomizations.class})
 public class ArticlesApiTest extends TestWithCurrentUser {
-  @Autowired private MockMvc mvc;
+  @Autowired private WebTestClient client;
 
   @MockBean private ArticleQueryService articleQueryService;
 
@@ -42,7 +40,6 @@ public class ArticlesApiTest extends TestWithCurrentUser {
   @BeforeEach
   public void setUp() throws Exception {
     super.setUp();
-    RestAssuredMockMvc.mockMvc(mvc);
   }
 
   @Test
@@ -69,27 +66,33 @@ public class ArticlesApiTest extends TestWithCurrentUser {
             new ProfileData("userid", user.getUsername(), user.getBio(), user.getImage(), false));
 
     when(articleCommandService.createArticle(any(), any()))
-        .thenReturn(new Article(title, description, body, tagList, user.getId()));
+        .thenReturn(Mono.just(new Article(title, description, body, tagList, user.getId())));
 
     when(articleQueryService.findBySlug(eq(Article.toSlug(title)), any()))
-        .thenReturn(Optional.empty());
+        .thenReturn(Mono.empty());
 
-    when(articleQueryService.findById(any(), any())).thenReturn(Optional.of(articleData));
+    when(articleQueryService.findById(any(), any())).thenReturn(Mono.just(articleData));
 
-    given()
-        .contentType("application/json")
+    client
+        .post()
+        .uri("/articles")
+        .contentType(MediaType.APPLICATION_JSON)
         .header("Authorization", "Token " + token)
-        .body(param)
-        .when()
-        .post("/articles")
-        .then()
-        .statusCode(200)
-        .body("article.title", equalTo(title))
-        .body("article.favorited", equalTo(false))
-        .body("article.body", equalTo(body))
-        .body("article.favoritesCount", equalTo(0))
-        .body("article.author.username", equalTo(user.getUsername()))
-        .body("article.author.id", equalTo(null));
+        .bodyValue(param)
+        .exchange()
+        .expectStatus()
+        .isCreated()
+        .expectBody()
+        .jsonPath("$.article.title")
+        .isEqualTo(title)
+        .jsonPath("$.article.favorited")
+        .isEqualTo(false)
+        .jsonPath("$.article.body")
+        .isEqualTo(body)
+        .jsonPath("$.article.favoritesCount")
+        .isEqualTo(0)
+        .jsonPath("$.article.author.username")
+        .isEqualTo(user.getUsername());
 
     verify(articleCommandService).createArticle(any(), any());
   }
@@ -102,16 +105,18 @@ public class ArticlesApiTest extends TestWithCurrentUser {
     String[] tagList = {"reactjs", "angularjs", "dragons"};
     Map<String, Object> param = prepareParam(title, description, body, asList(tagList));
 
-    given()
-        .contentType("application/json")
+    client
+        .post()
+        .uri("/articles")
+        .contentType(MediaType.APPLICATION_JSON)
         .header("Authorization", "Token " + token)
-        .body(param)
-        .when()
-        .post("/articles")
-        .prettyPeek()
-        .then()
-        .statusCode(422)
-        .body("errors.body[0]", equalTo("can't be empty"));
+        .bodyValue(param)
+        .exchange()
+        .expectStatus()
+        .isEqualTo(422)
+        .expectBody()
+        .jsonPath("$.errors.body[0]")
+        .isEqualTo("can't be empty");
   }
 
   @Test
@@ -138,19 +143,19 @@ public class ArticlesApiTest extends TestWithCurrentUser {
             new ProfileData("userid", user.getUsername(), user.getBio(), user.getImage(), false));
 
     when(articleQueryService.findBySlug(eq(Article.toSlug(title)), any()))
-        .thenReturn(Optional.of(articleData));
+        .thenReturn(Mono.just(articleData));
 
-    when(articleQueryService.findById(any(), any())).thenReturn(Optional.of(articleData));
+    when(articleQueryService.findById(any(), any())).thenReturn(Mono.just(articleData));
 
-    given()
-        .contentType("application/json")
+    client
+        .post()
+        .uri("/articles")
+        .contentType(MediaType.APPLICATION_JSON)
         .header("Authorization", "Token " + token)
-        .body(param)
-        .when()
-        .post("/articles")
-        .prettyPeek()
-        .then()
-        .statusCode(422);
+        .bodyValue(param)
+        .exchange()
+        .expectStatus()
+        .isEqualTo(422);
   }
 
   private HashMap<String, Object> prepareParam(

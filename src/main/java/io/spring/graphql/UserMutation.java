@@ -12,13 +12,11 @@ import io.spring.application.user.UserService;
 import io.spring.core.user.User;
 import io.spring.core.user.UserRepository;
 import io.spring.graphql.DgsConstants.MUTATION;
-import io.spring.graphql.exception.GraphQLCustomizeExceptionHandler;
-import io.spring.graphql.types.CreateUserInput;
 import io.spring.graphql.types.UpdateUserInput;
 import io.spring.graphql.types.UserPayload;
 import io.spring.graphql.types.UserResult;
-import java.util.Optional;
-import javax.validation.ConstraintViolationException;
+import io.spring.graphql.types.CreateUserInput;
+import java.util.concurrent.CompletableFuture;
 import lombok.AllArgsConstructor;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -34,45 +32,45 @@ public class UserMutation {
   private UserService userService;
 
   @DgsData(parentType = MUTATION.TYPE_NAME, field = MUTATION.CreateUser)
-  public DataFetcherResult<UserResult> createUser(@InputArgument("input") CreateUserInput input) {
+  public CompletableFuture<DataFetcherResult<UserResult>> createUser(
+      @InputArgument("input") CreateUserInput input) {
     RegisterParam registerParam =
         new RegisterParam(input.getEmail(), input.getUsername(), input.getPassword());
-    User user;
-    try {
-      user = userService.createUser(registerParam);
-    } catch (ConstraintViolationException cve) {
-      return DataFetcherResult.<UserResult>newResult()
-          .data(GraphQLCustomizeExceptionHandler.getErrorsAsData(cve))
-          .build();
-    }
-
-    return DataFetcherResult.<UserResult>newResult()
-        .data(UserPayload.newBuilder().build())
-        .localContext(user)
-        .build();
+    return userService
+        .createUser(registerParam)
+        .map(
+            user ->
+                DataFetcherResult.<UserResult>newResult()
+                    .data(UserPayload.newBuilder().build())
+                    .localContext(user)
+                    .build())
+        .toFuture();
   }
 
   @DgsData(parentType = MUTATION.TYPE_NAME, field = MUTATION.Login)
-  public DataFetcherResult<UserPayload> login(
+  public CompletableFuture<DataFetcherResult<UserPayload>> login(
       @InputArgument("password") String password, @InputArgument("email") String email) {
-    Optional<User> optional = userRepository.findByEmail(email);
-    if (optional.isPresent() && encryptService.matches(password, optional.get().getPassword())) {
-      return DataFetcherResult.<UserPayload>newResult()
-          .data(UserPayload.newBuilder().build())
-          .localContext(optional.get())
-          .build();
-    } else {
-      throw new InvalidAuthenticationException();
-    }
+    return userRepository
+        .findByEmail(email)
+        .filter(user -> encryptService.matches(password, user.getPassword()))
+        .map(
+            user ->
+                DataFetcherResult.<UserPayload>newResult()
+                    .data(UserPayload.newBuilder().build())
+                    .localContext(user)
+                    .build())
+        .switchIfEmpty(
+            reactor.core.publisher.Mono.error(new InvalidAuthenticationException()))
+        .toFuture();
   }
 
   @DgsData(parentType = MUTATION.TYPE_NAME, field = MUTATION.UpdateUser)
-  public DataFetcherResult<UserPayload> updateUser(
+  public CompletableFuture<DataFetcherResult<UserPayload>> updateUser(
       @InputArgument("changes") UpdateUserInput updateUserInput) {
     Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
     if (authentication instanceof AnonymousAuthenticationToken
         || authentication.getPrincipal() == null) {
-      return null;
+      return CompletableFuture.completedFuture(null);
     }
     io.spring.core.user.User currentUser = (io.spring.core.user.User) authentication.getPrincipal();
     UpdateUserParam param =
@@ -84,10 +82,14 @@ public class UserMutation {
             .image(updateUserInput.getImage())
             .build();
 
-    userService.updateUser(new UpdateUserCommand(currentUser, param));
-    return DataFetcherResult.<UserPayload>newResult()
-        .data(UserPayload.newBuilder().build())
-        .localContext(currentUser)
-        .build();
+    return userService
+        .updateUser(new UpdateUserCommand(currentUser, param))
+        .map(
+            user ->
+                DataFetcherResult.<UserPayload>newResult()
+                    .data(UserPayload.newBuilder().build())
+                    .localContext(currentUser)
+                    .build())
+        .toFuture();
   }
 }

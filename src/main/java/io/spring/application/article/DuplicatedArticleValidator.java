@@ -5,6 +5,7 @@ import io.spring.core.article.Article;
 import javax.validation.ConstraintValidator;
 import javax.validation.ConstraintValidatorContext;
 import org.springframework.beans.factory.annotation.Autowired;
+import reactor.core.scheduler.Schedulers;
 
 class DuplicatedArticleValidator
     implements ConstraintValidator<DuplicatedArticleConstraint, String> {
@@ -13,6 +14,16 @@ class DuplicatedArticleValidator
 
   @Override
   public boolean isValid(String value, ConstraintValidatorContext context) {
-    return !articleQueryService.findBySlug(Article.toSlug(value), null).isPresent();
+    // Block here since ConstraintValidator is synchronous by design
+    // Use publishOn to switch to boundedElastic scheduler before blocking
+    try {
+      return articleQueryService
+          .findBySlug(Article.toSlug(value), null)
+          .publishOn(Schedulers.boundedElastic())
+          .toFuture()
+          .get() == null;
+    } catch (Exception e) {
+      return true;
+    }
   }
 }

@@ -22,7 +22,9 @@ import io.spring.graphql.types.CreateArticleInput;
 import io.spring.graphql.types.DeletionStatus;
 import io.spring.graphql.types.UpdateArticleInput;
 import java.util.Collections;
+import java.util.concurrent.CompletableFuture;
 import lombok.AllArgsConstructor;
+import reactor.core.publisher.Mono;
 
 @DgsComponent
 @AllArgsConstructor
@@ -33,7 +35,7 @@ public class ArticleMutation {
   private ArticleRepository articleRepository;
 
   @DgsMutation(field = MUTATION.CreateArticle)
-  public DataFetcherResult<ArticlePayload> createArticle(
+  public CompletableFuture<DataFetcherResult<ArticlePayload>> createArticle(
       @InputArgument("input") CreateArticleInput input) {
     User user = SecurityUtil.getCurrentUser().orElseThrow(AuthenticationException::new);
     NewArticleParam newArticleParam =
@@ -43,73 +45,99 @@ public class ArticleMutation {
             .body(input.getBody())
             .tagList(input.getTagList() == null ? Collections.emptyList() : input.getTagList())
             .build();
-    Article article = articleCommandService.createArticle(newArticleParam, user);
-    return DataFetcherResult.<ArticlePayload>newResult()
-        .data(ArticlePayload.newBuilder().build())
-        .localContext(article)
-        .build();
+    return articleCommandService
+        .createArticle(newArticleParam, user)
+        .map(
+            article ->
+                DataFetcherResult.<ArticlePayload>newResult()
+                    .data(ArticlePayload.newBuilder().build())
+                    .localContext(article)
+                    .build())
+        .toFuture();
   }
 
   @DgsMutation(field = MUTATION.UpdateArticle)
-  public DataFetcherResult<ArticlePayload> updateArticle(
+  public CompletableFuture<DataFetcherResult<ArticlePayload>> updateArticle(
       @InputArgument("slug") String slug, @InputArgument("changes") UpdateArticleInput params) {
-    Article article =
-        articleRepository.findBySlug(slug).orElseThrow(ResourceNotFoundException::new);
     User user = SecurityUtil.getCurrentUser().orElseThrow(AuthenticationException::new);
-    if (!AuthorizationService.canWriteArticle(user, article)) {
-      throw new NoAuthorizationException();
-    }
-    article =
-        articleCommandService.updateArticle(
-            article,
-            new UpdateArticleParam(params.getTitle(), params.getBody(), params.getDescription()));
-    return DataFetcherResult.<ArticlePayload>newResult()
-        .data(ArticlePayload.newBuilder().build())
-        .localContext(article)
-        .build();
+    return articleRepository
+        .findBySlug(slug)
+        .switchIfEmpty(Mono.error(new ResourceNotFoundException()))
+        .flatMap(
+            article -> {
+              if (!AuthorizationService.canWriteArticle(user, article)) {
+                return Mono.error(new NoAuthorizationException());
+              }
+              return articleCommandService.updateArticle(
+                  article,
+                  new UpdateArticleParam(params.getTitle(), params.getBody(), params.getDescription()));
+            })
+        .map(
+            article ->
+                DataFetcherResult.<ArticlePayload>newResult()
+                    .data(ArticlePayload.newBuilder().build())
+                    .localContext(article)
+                    .build())
+        .toFuture();
   }
 
   @DgsMutation(field = MUTATION.FavoriteArticle)
-  public DataFetcherResult<ArticlePayload> favoriteArticle(@InputArgument("slug") String slug) {
+  public CompletableFuture<DataFetcherResult<ArticlePayload>> favoriteArticle(
+      @InputArgument("slug") String slug) {
     User user = SecurityUtil.getCurrentUser().orElseThrow(AuthenticationException::new);
-    Article article =
-        articleRepository.findBySlug(slug).orElseThrow(ResourceNotFoundException::new);
-    ArticleFavorite articleFavorite = new ArticleFavorite(article.getId(), user.getId());
-    articleFavoriteRepository.save(articleFavorite);
-    return DataFetcherResult.<ArticlePayload>newResult()
-        .data(ArticlePayload.newBuilder().build())
-        .localContext(article)
-        .build();
+    return articleRepository
+        .findBySlug(slug)
+        .switchIfEmpty(Mono.error(new ResourceNotFoundException()))
+        .flatMap(
+            article -> {
+              ArticleFavorite articleFavorite = new ArticleFavorite(article.getId(), user.getId());
+              return articleFavoriteRepository.save(articleFavorite).thenReturn(article);
+            })
+        .map(
+            article ->
+                DataFetcherResult.<ArticlePayload>newResult()
+                    .data(ArticlePayload.newBuilder().build())
+                    .localContext(article)
+                    .build())
+        .toFuture();
   }
 
   @DgsMutation(field = MUTATION.UnfavoriteArticle)
-  public DataFetcherResult<ArticlePayload> unfavoriteArticle(@InputArgument("slug") String slug) {
+  public CompletableFuture<DataFetcherResult<ArticlePayload>> unfavoriteArticle(
+      @InputArgument("slug") String slug) {
     User user = SecurityUtil.getCurrentUser().orElseThrow(AuthenticationException::new);
-    Article article =
-        articleRepository.findBySlug(slug).orElseThrow(ResourceNotFoundException::new);
-    articleFavoriteRepository
-        .find(article.getId(), user.getId())
-        .ifPresent(
-            favorite -> {
-              articleFavoriteRepository.remove(favorite);
-            });
-    return DataFetcherResult.<ArticlePayload>newResult()
-        .data(ArticlePayload.newBuilder().build())
-        .localContext(article)
-        .build();
+    return articleRepository
+        .findBySlug(slug)
+        .switchIfEmpty(Mono.error(new ResourceNotFoundException()))
+        .flatMap(
+            article ->
+                articleFavoriteRepository
+                    .find(article.getId(), user.getId())
+                    .flatMap(favorite -> articleFavoriteRepository.remove(favorite))
+                    .thenReturn(article))
+        .map(
+            article ->
+                DataFetcherResult.<ArticlePayload>newResult()
+                    .data(ArticlePayload.newBuilder().build())
+                    .localContext(article)
+                    .build())
+        .toFuture();
   }
 
   @DgsMutation(field = MUTATION.DeleteArticle)
-  public DeletionStatus deleteArticle(@InputArgument("slug") String slug) {
+  public CompletableFuture<DeletionStatus> deleteArticle(@InputArgument("slug") String slug) {
     User user = SecurityUtil.getCurrentUser().orElseThrow(AuthenticationException::new);
-    Article article =
-        articleRepository.findBySlug(slug).orElseThrow(ResourceNotFoundException::new);
-
-    if (!AuthorizationService.canWriteArticle(user, article)) {
-      throw new NoAuthorizationException();
-    }
-
-    articleRepository.remove(article);
-    return DeletionStatus.newBuilder().success(true).build();
+    return articleRepository
+        .findBySlug(slug)
+        .switchIfEmpty(Mono.error(new ResourceNotFoundException()))
+        .flatMap(
+            article -> {
+              if (!AuthorizationService.canWriteArticle(user, article)) {
+                return Mono.error(new NoAuthorizationException());
+              }
+              return articleRepository.remove(article);
+            })
+        .thenReturn(DeletionStatus.newBuilder().success(true).build())
+        .toFuture();
   }
 }

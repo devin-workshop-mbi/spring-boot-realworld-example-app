@@ -5,7 +5,6 @@ import com.netflix.graphql.dgs.DgsData;
 import com.netflix.graphql.dgs.InputArgument;
 import io.spring.api.exception.ResourceNotFoundException;
 import io.spring.application.ProfileQueryService;
-import io.spring.application.data.ProfileData;
 import io.spring.core.user.FollowRelation;
 import io.spring.core.user.User;
 import io.spring.core.user.UserRepository;
@@ -13,7 +12,9 @@ import io.spring.graphql.DgsConstants.MUTATION;
 import io.spring.graphql.exception.AuthenticationException;
 import io.spring.graphql.types.Profile;
 import io.spring.graphql.types.ProfilePayload;
+import java.util.concurrent.CompletableFuture;
 import lombok.AllArgsConstructor;
+import reactor.core.publisher.Mono;
 
 @DgsComponent
 @AllArgsConstructor
@@ -23,43 +24,52 @@ public class RelationMutation {
   private ProfileQueryService profileQueryService;
 
   @DgsData(parentType = MUTATION.TYPE_NAME, field = MUTATION.FollowUser)
-  public ProfilePayload follow(@InputArgument("username") String username) {
-    User user = SecurityUtil.getCurrentUser().orElseThrow(AuthenticationException::new);
+  public CompletableFuture<ProfilePayload> follow(@InputArgument("username") String username) {
+    User currentUser = SecurityUtil.getCurrentUser().orElseThrow(AuthenticationException::new);
     return userRepository
         .findByUsername(username)
-        .map(
+        .switchIfEmpty(Mono.error(new ResourceNotFoundException()))
+        .flatMap(
             target -> {
-              FollowRelation followRelation = new FollowRelation(user.getId(), target.getId());
-              userRepository.saveRelation(followRelation);
-              Profile profile = buildProfile(username, user);
-              return ProfilePayload.newBuilder().profile(profile).build();
+              FollowRelation followRelation = new FollowRelation(currentUser.getId(), target.getId());
+              return userRepository
+                  .saveRelation(followRelation)
+                  .then(buildProfile(username, currentUser));
             })
-        .orElseThrow(ResourceNotFoundException::new);
+        .map(profile -> ProfilePayload.newBuilder().profile(profile).build())
+        .toFuture();
   }
 
   @DgsData(parentType = MUTATION.TYPE_NAME, field = MUTATION.UnfollowUser)
-  public ProfilePayload unfollow(@InputArgument("username") String username) {
-    User user = SecurityUtil.getCurrentUser().orElseThrow(AuthenticationException::new);
-    User target =
-        userRepository.findByUsername(username).orElseThrow(ResourceNotFoundException::new);
+  public CompletableFuture<ProfilePayload> unfollow(@InputArgument("username") String username) {
+    User currentUser = SecurityUtil.getCurrentUser().orElseThrow(AuthenticationException::new);
     return userRepository
-        .findRelation(user.getId(), target.getId())
-        .map(
-            relation -> {
-              userRepository.removeRelation(relation);
-              Profile profile = buildProfile(username, user);
-              return ProfilePayload.newBuilder().profile(profile).build();
-            })
-        .orElseThrow(ResourceNotFoundException::new);
+        .findByUsername(username)
+        .switchIfEmpty(Mono.error(new ResourceNotFoundException()))
+        .flatMap(
+            target ->
+                userRepository
+                    .findRelation(currentUser.getId(), target.getId())
+                    .switchIfEmpty(Mono.error(new ResourceNotFoundException()))
+                    .flatMap(
+                        relation ->
+                            userRepository
+                                .removeRelation(relation)
+                                .then(buildProfile(username, currentUser))))
+        .map(profile -> ProfilePayload.newBuilder().profile(profile).build())
+        .toFuture();
   }
 
-  private Profile buildProfile(@InputArgument("username") String username, User current) {
-    ProfileData profileData = profileQueryService.findByUsername(username, current).get();
-    return Profile.newBuilder()
-        .username(profileData.getUsername())
-        .bio(profileData.getBio())
-        .image(profileData.getImage())
-        .following(profileData.isFollowing())
-        .build();
+  private Mono<Profile> buildProfile(String username, User current) {
+    return profileQueryService
+        .findByUsername(username, current)
+        .map(
+            profileData ->
+                Profile.newBuilder()
+                    .username(profileData.getUsername())
+                    .bio(profileData.getBio())
+                    .image(profileData.getImage())
+                    .following(profileData.isFollowing())
+                    .build());
   }
 }

@@ -1,85 +1,85 @@
 package io.spring.application;
 
 import io.spring.application.data.CommentData;
+import io.spring.application.data.ProfileData;
+import io.spring.core.comment.Comment;
+import io.spring.core.comment.CommentRepository;
 import io.spring.core.user.User;
-import io.spring.infrastructure.mybatis.readservice.CommentReadService;
-import io.spring.infrastructure.mybatis.readservice.UserRelationshipQueryService;
+import io.spring.core.user.UserRepository;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
-import java.util.Set;
-import java.util.stream.Collectors;
 import lombok.AllArgsConstructor;
 import org.joda.time.DateTime;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 @Service
 @AllArgsConstructor
 public class CommentQueryService {
-  private CommentReadService commentReadService;
-  private UserRelationshipQueryService userRelationshipQueryService;
+  private CommentRepository commentRepository;
+  private UserRepository userRepository;
 
-  public Optional<CommentData> findById(String id, User user) {
-    CommentData commentData = commentReadService.findById(id);
-    if (commentData == null) {
-      return Optional.empty();
-    } else {
-      commentData
-          .getProfileData()
-          .setFollowing(
-              userRelationshipQueryService.isUserFollowing(
-                  user.getId(), commentData.getProfileData().getId()));
-    }
-    return Optional.ofNullable(commentData);
+  public Mono<CommentData> findById(String id, User user) {
+    return commentRepository.findById(id).flatMap(comment -> toCommentData(comment, user));
   }
 
-  public List<CommentData> findByArticleId(String articleId, User user) {
-    List<CommentData> comments = commentReadService.findByArticleId(articleId);
-    if (comments.size() > 0 && user != null) {
-      Set<String> followingAuthors =
-          userRelationshipQueryService.followingAuthors(
-              user.getId(),
-              comments.stream()
-                  .map(commentData -> commentData.getProfileData().getId())
-                  .collect(Collectors.toList()));
-      comments.forEach(
-          commentData -> {
-            if (followingAuthors.contains(commentData.getProfileData().getId())) {
-              commentData.getProfileData().setFollowing(true);
-            }
-          });
-    }
-    return comments;
+  public Flux<CommentData> findByArticleId(String articleId, User user) {
+    return commentRepository
+        .findByArticleId(articleId)
+        .flatMap(comment -> toCommentData(comment, user));
   }
 
-  public CursorPager<CommentData> findByArticleIdWithCursor(
+  public Mono<CursorPager<CommentData>> findByArticleIdWithCursor(
       String articleId, User user, CursorPageParameter<DateTime> page) {
-    List<CommentData> comments = commentReadService.findByArticleIdWithCursor(articleId, page);
-    if (comments.isEmpty()) {
-      return new CursorPager<>(new ArrayList<>(), page.getDirection(), false);
-    }
-    if (user != null) {
-      Set<String> followingAuthors =
-          userRelationshipQueryService.followingAuthors(
-              user.getId(),
-              comments.stream()
-                  .map(commentData -> commentData.getProfileData().getId())
-                  .collect(Collectors.toList()));
-      comments.forEach(
-          commentData -> {
-            if (followingAuthors.contains(commentData.getProfileData().getId())) {
-              commentData.getProfileData().setFollowing(true);
-            }
-          });
-    }
-    boolean hasExtra = comments.size() > page.getLimit();
-    if (hasExtra) {
-      comments.remove(page.getLimit());
-    }
-    if (!page.isNext()) {
-      Collections.reverse(comments);
-    }
-    return new CursorPager<>(comments, page.getDirection(), hasExtra);
+    return commentRepository
+        .findByArticleId(articleId)
+        .take(page.getLimit() + 1)
+        .flatMap(comment -> toCommentData(comment, user))
+        .collectList()
+        .map(
+            comments -> {
+              boolean hasExtra = comments.size() > page.getLimit();
+              if (hasExtra) {
+                comments = new ArrayList<>(comments.subList(0, page.getLimit()));
+              }
+              return new CursorPager<>(comments, page.getDirection(), hasExtra);
+            });
+  }
+
+  private Mono<CommentData> toCommentData(Comment comment, User currentUser) {
+    return userRepository
+        .findById(comment.getUserId())
+        .flatMap(
+            author -> {
+              Mono<Boolean> isFollowingMono =
+                  currentUser != null
+                      ? userRepository
+                          .findRelation(currentUser.getId(), author.getId())
+                          .map(rel -> true)
+                          .defaultIfEmpty(false)
+                      : Mono.just(false);
+
+              return isFollowingMono.map(
+                  isFollowing -> {
+                    ProfileData profileData =
+                        new ProfileData(
+                            author.getId(),
+                            author.getUsername(),
+                            author.getBio(),
+                            author.getImage(),
+                            isFollowing);
+
+                    CommentData commentData = new CommentData();
+                    commentData.setId(comment.getId());
+                    commentData.setBody(comment.getBody());
+                    commentData.setArticleId(comment.getArticleId());
+                    commentData.setCreatedAt(comment.getCreatedAt());
+                    commentData.setUpdatedAt(comment.getCreatedAt());
+                    commentData.setProfileData(profileData);
+
+                    return commentData;
+                  });
+            });
   }
 }

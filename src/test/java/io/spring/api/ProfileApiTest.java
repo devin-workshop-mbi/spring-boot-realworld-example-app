@@ -1,12 +1,9 @@
 package io.spring.api;
 
-import static io.restassured.module.mockmvc.RestAssuredMockMvc.given;
-import static org.hamcrest.core.IsEqual.equalTo;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import io.restassured.module.mockmvc.RestAssuredMockMvc;
 import io.spring.JacksonCustomizations;
 import io.spring.api.security.WebSecurityConfig;
 import io.spring.application.ProfileQueryService;
@@ -17,17 +14,18 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
-import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.reactive.server.WebTestClient;
+import reactor.core.publisher.Mono;
 
-@WebMvcTest(ProfileApi.class)
+@WebFluxTest(ProfileApi.class)
 @Import({WebSecurityConfig.class, JacksonCustomizations.class})
 public class ProfileApiTest extends TestWithCurrentUser {
   private User anotherUser;
 
-  @Autowired private MockMvc mvc;
+  @Autowired private WebTestClient client;
 
   @MockBean private ProfileQueryService profileQueryService;
 
@@ -36,7 +34,6 @@ public class ProfileApiTest extends TestWithCurrentUser {
   @BeforeEach
   public void setUp() throws Exception {
     super.setUp();
-    RestAssuredMockMvc.mockMvc(mvc);
     anotherUser = new User("username@test.com", "username", "123", "", "");
     profileData =
         new ProfileData(
@@ -46,32 +43,37 @@ public class ProfileApiTest extends TestWithCurrentUser {
             anotherUser.getImage(),
             false);
     when(userRepository.findByUsername(eq(anotherUser.getUsername())))
-        .thenReturn(Optional.of(anotherUser));
+        .thenReturn(Mono.just(anotherUser));
   }
 
   @Test
   public void should_get_user_profile_success() throws Exception {
     when(profileQueryService.findByUsername(eq(profileData.getUsername()), eq(null)))
-        .thenReturn(Optional.of(profileData));
-    RestAssuredMockMvc.when()
-        .get("/profiles/{username}", profileData.getUsername())
-        .prettyPeek()
-        .then()
-        .statusCode(200)
-        .body("profile.username", equalTo(profileData.getUsername()));
+        .thenReturn(Mono.just(profileData));
+    client
+        .get()
+        .uri("/profiles/{username}", profileData.getUsername())
+        .exchange()
+        .expectStatus()
+        .isOk()
+        .expectBody()
+        .jsonPath("$.profile.username")
+        .isEqualTo(profileData.getUsername());
   }
 
   @Test
   public void should_follow_user_success() throws Exception {
     when(profileQueryService.findByUsername(eq(profileData.getUsername()), eq(user)))
-        .thenReturn(Optional.of(profileData));
-    given()
+        .thenReturn(Mono.just(profileData));
+    when(userRepository.saveRelation(new FollowRelation(user.getId(), anotherUser.getId())))
+        .thenReturn(Mono.empty());
+    client
+        .post()
+        .uri("/profiles/{username}/follow", anotherUser.getUsername())
         .header("Authorization", "Token " + token)
-        .when()
-        .post("/profiles/{username}/follow", anotherUser.getUsername())
-        .prettyPeek()
-        .then()
-        .statusCode(200);
+        .exchange()
+        .expectStatus()
+        .isOk();
     verify(userRepository).saveRelation(new FollowRelation(user.getId(), anotherUser.getId()));
   }
 
@@ -79,17 +81,18 @@ public class ProfileApiTest extends TestWithCurrentUser {
   public void should_unfollow_user_success() throws Exception {
     FollowRelation followRelation = new FollowRelation(user.getId(), anotherUser.getId());
     when(userRepository.findRelation(eq(user.getId()), eq(anotherUser.getId())))
-        .thenReturn(Optional.of(followRelation));
+        .thenReturn(Mono.just(followRelation));
     when(profileQueryService.findByUsername(eq(profileData.getUsername()), eq(user)))
-        .thenReturn(Optional.of(profileData));
+        .thenReturn(Mono.just(profileData));
+    when(userRepository.removeRelation(eq(followRelation))).thenReturn(Mono.empty());
 
-    given()
+    client
+        .delete()
+        .uri("/profiles/{username}/follow", anotherUser.getUsername())
         .header("Authorization", "Token " + token)
-        .when()
-        .delete("/profiles/{username}/follow", anotherUser.getUsername())
-        .prettyPeek()
-        .then()
-        .statusCode(200);
+        .exchange()
+        .expectStatus()
+        .isOk();
 
     verify(userRepository).removeRelation(eq(followRelation));
   }

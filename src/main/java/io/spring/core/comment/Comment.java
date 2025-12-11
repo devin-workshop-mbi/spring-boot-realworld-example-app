@@ -5,15 +5,22 @@ import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.joda.time.DateTime;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Column;
+import org.springframework.data.relational.core.mapping.Table;
 
 @Getter
 @NoArgsConstructor
 @EqualsAndHashCode(of = "id")
+@Table("comments")
 public class Comment {
-  private String id;
+  @Id private String id;
   private String body;
+  @Column("user_id")
   private String userId;
+  @Column("article_id")
   private String articleId;
+  @Column("created_at")
   private DateTime createdAt;
 
   public Comment(String body, String userId, String articleId) {

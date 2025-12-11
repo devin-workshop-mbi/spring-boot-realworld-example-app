@@ -1,14 +1,11 @@
 package io.spring.api;
 
-import static io.restassured.module.mockmvc.RestAssuredMockMvc.given;
-import static org.hamcrest.core.IsEqual.equalTo;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import io.restassured.module.mockmvc.RestAssuredMockMvc;
 import io.spring.JacksonCustomizations;
 import io.spring.TestHelper;
 import io.spring.api.security.WebSecurityConfig;
@@ -23,21 +20,22 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import org.joda.time.DateTime;
 import org.joda.time.format.ISODateTimeFormat;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
-import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.reactive.server.WebTestClient;
+import reactor.core.publisher.Mono;
 
-@WebMvcTest({ArticleApi.class})
+@WebFluxTest({ArticleApi.class})
 @Import({WebSecurityConfig.class, JacksonCustomizations.class})
 public class ArticleApiTest extends TestWithCurrentUser {
-  @Autowired private MockMvc mvc;
+  @Autowired private WebTestClient client;
 
   @MockBean private ArticleQueryService articleQueryService;
 
@@ -49,7 +47,6 @@ public class ArticleApiTest extends TestWithCurrentUser {
   @BeforeEach
   public void setUp() throws Exception {
     super.setUp();
-    RestAssuredMockMvc.mockMvc(mvc);
   }
 
   @Test
@@ -66,21 +63,27 @@ public class ArticleApiTest extends TestWithCurrentUser {
             time);
     ArticleData articleData = TestHelper.getArticleDataFromArticleAndUser(article, user);
 
-    when(articleQueryService.findBySlug(eq(slug), eq(null))).thenReturn(Optional.of(articleData));
+    when(articleQueryService.findBySlug(eq(slug), eq(null))).thenReturn(Mono.just(articleData));
 
-    RestAssuredMockMvc.when()
-        .get("/articles/{slug}", slug)
-        .then()
-        .statusCode(200)
-        .body("article.slug", equalTo(slug))
-        .body("article.body", equalTo(articleData.getBody()))
-        .body("article.createdAt", equalTo(ISODateTimeFormat.dateTime().withZoneUTC().print(time)));
+    client
+        .get()
+        .uri("/articles/{slug}", slug)
+        .exchange()
+        .expectStatus()
+        .isOk()
+        .expectBody()
+        .jsonPath("$.article.slug")
+        .isEqualTo(slug)
+        .jsonPath("$.article.body")
+        .isEqualTo(articleData.getBody())
+        .jsonPath("$.article.createdAt")
+        .isEqualTo(ISODateTimeFormat.dateTime().withZoneUTC().print(time));
   }
 
   @Test
   public void should_404_if_article_not_found() throws Exception {
-    when(articleQueryService.findBySlug(anyString(), any())).thenReturn(Optional.empty());
-    RestAssuredMockMvc.when().get("/articles/not-exists").then().statusCode(404);
+    when(articleQueryService.findBySlug(anyString(), any())).thenReturn(Mono.empty());
+    client.get().uri("/articles/not-exists").exchange().expectStatus().isNotFound();
   }
 
   @Test
@@ -101,21 +104,24 @@ public class ArticleApiTest extends TestWithCurrentUser {
         TestHelper.getArticleDataFromArticleAndUser(updatedArticle, user);
 
     when(articleRepository.findBySlug(eq(originalArticle.getSlug())))
-        .thenReturn(Optional.of(originalArticle));
+        .thenReturn(Mono.just(originalArticle));
     when(articleCommandService.updateArticle(eq(originalArticle), any()))
-        .thenReturn(updatedArticle);
+        .thenReturn(Mono.just(updatedArticle));
     when(articleQueryService.findBySlug(eq(updatedArticle.getSlug()), eq(user)))
-        .thenReturn(Optional.of(updatedArticleData));
+        .thenReturn(Mono.just(updatedArticleData));
 
-    given()
-        .contentType("application/json")
+    client
+        .put()
+        .uri("/articles/{slug}", originalArticle.getSlug())
+        .contentType(MediaType.APPLICATION_JSON)
         .header("Authorization", "Token " + token)
-        .body(updateParam)
-        .when()
-        .put("/articles/{slug}", originalArticle.getSlug())
-        .then()
-        .statusCode(200)
-        .body("article.slug", equalTo(updatedArticleData.getSlug()));
+        .bodyValue(updateParam)
+        .exchange()
+        .expectStatus()
+        .isOk()
+        .expectBody()
+        .jsonPath("$.article.slug")
+        .isEqualTo(updatedArticleData.getSlug());
   }
 
   @Test
@@ -151,18 +157,19 @@ public class ArticleApiTest extends TestWithCurrentUser {
                 anotherUser.getImage(),
                 false));
 
-    when(articleRepository.findBySlug(eq(article.getSlug()))).thenReturn(Optional.of(article));
+    when(articleRepository.findBySlug(eq(article.getSlug()))).thenReturn(Mono.just(article));
     when(articleQueryService.findBySlug(eq(article.getSlug()), eq(user)))
-        .thenReturn(Optional.of(articleData));
+        .thenReturn(Mono.just(articleData));
 
-    given()
-        .contentType("application/json")
+    client
+        .put()
+        .uri("/articles/{slug}", article.getSlug())
+        .contentType(MediaType.APPLICATION_JSON)
         .header("Authorization", "Token " + token)
-        .body(updateParam)
-        .when()
-        .put("/articles/{slug}", article.getSlug())
-        .then()
-        .statusCode(403);
+        .bodyValue(updateParam)
+        .exchange()
+        .expectStatus()
+        .isForbidden();
   }
 
   @Test
@@ -173,14 +180,16 @@ public class ArticleApiTest extends TestWithCurrentUser {
 
     Article article =
         new Article(title, description, body, Arrays.asList("java", "spring", "jpg"), user.getId());
-    when(articleRepository.findBySlug(eq(article.getSlug()))).thenReturn(Optional.of(article));
+    when(articleRepository.findBySlug(eq(article.getSlug()))).thenReturn(Mono.just(article));
+    when(articleRepository.remove(eq(article))).thenReturn(Mono.empty());
 
-    given()
+    client
+        .delete()
+        .uri("/articles/{slug}", article.getSlug())
         .header("Authorization", "Token " + token)
-        .when()
-        .delete("/articles/{slug}", article.getSlug())
-        .then()
-        .statusCode(204);
+        .exchange()
+        .expectStatus()
+        .isNoContent();
 
     verify(articleRepository).remove(eq(article));
   }
@@ -197,13 +206,14 @@ public class ArticleApiTest extends TestWithCurrentUser {
         new Article(
             title, description, body, Arrays.asList("java", "spring", "jpg"), anotherUser.getId());
 
-    when(articleRepository.findBySlug(eq(article.getSlug()))).thenReturn(Optional.of(article));
-    given()
+    when(articleRepository.findBySlug(eq(article.getSlug()))).thenReturn(Mono.just(article));
+    client
+        .delete()
+        .uri("/articles/{slug}", article.getSlug())
         .header("Authorization", "Token " + token)
-        .when()
-        .delete("/articles/{slug}", article.getSlug())
-        .then()
-        .statusCode(403);
+        .exchange()
+        .expectStatus()
+        .isForbidden();
   }
 
   private HashMap<String, Object> prepareUpdateParam(

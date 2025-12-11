@@ -7,9 +7,8 @@ import io.spring.core.user.FollowRelation;
 import io.spring.core.user.User;
 import io.spring.core.user.UserRepository;
 import java.util.HashMap;
-import java.util.Optional;
+import java.util.Map;
 import lombok.AllArgsConstructor;
-import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,6 +16,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import reactor.core.publisher.Mono;
 
 @RestController
 @RequestMapping(path = "profiles/{username}")
@@ -26,53 +26,56 @@ public class ProfileApi {
   private UserRepository userRepository;
 
   @GetMapping
-  public ResponseEntity getProfile(
+  public Mono<Map<String, Object>> getProfile(
       @PathVariable("username") String username, @AuthenticationPrincipal User user) {
     return profileQueryService
         .findByUsername(username, user)
-        .map(this::profileResponse)
-        .orElseThrow(ResourceNotFoundException::new);
+        .switchIfEmpty(Mono.error(new ResourceNotFoundException()))
+        .map(this::profileResponse);
   }
 
   @PostMapping(path = "follow")
-  public ResponseEntity follow(
+  public Mono<Map<String, Object>> follow(
       @PathVariable("username") String username, @AuthenticationPrincipal User user) {
     return userRepository
         .findByUsername(username)
-        .map(
+        .switchIfEmpty(Mono.error(new ResourceNotFoundException()))
+        .flatMap(
             target -> {
               FollowRelation followRelation = new FollowRelation(user.getId(), target.getId());
-              userRepository.saveRelation(followRelation);
-              return profileResponse(profileQueryService.findByUsername(username, user).get());
-            })
-        .orElseThrow(ResourceNotFoundException::new);
+              return userRepository
+                  .saveRelation(followRelation)
+                  .then(
+                      profileQueryService
+                          .findByUsername(username, user)
+                          .map(this::profileResponse));
+            });
   }
 
   @DeleteMapping(path = "follow")
-  public ResponseEntity unfollow(
+  public Mono<Map<String, Object>> unfollow(
       @PathVariable("username") String username, @AuthenticationPrincipal User user) {
-    Optional<User> userOptional = userRepository.findByUsername(username);
-    if (userOptional.isPresent()) {
-      User target = userOptional.get();
-      return userRepository
-          .findRelation(user.getId(), target.getId())
-          .map(
-              relation -> {
-                userRepository.removeRelation(relation);
-                return profileResponse(profileQueryService.findByUsername(username, user).get());
-              })
-          .orElseThrow(ResourceNotFoundException::new);
-    } else {
-      throw new ResourceNotFoundException();
-    }
+    return userRepository
+        .findByUsername(username)
+        .switchIfEmpty(Mono.error(new ResourceNotFoundException()))
+        .flatMap(
+            target ->
+                userRepository
+                    .findRelation(user.getId(), target.getId())
+                    .switchIfEmpty(Mono.error(new ResourceNotFoundException()))
+                    .flatMap(
+                        relation ->
+                            userRepository
+                                .removeRelation(relation)
+                                .then(
+                                    profileQueryService
+                                        .findByUsername(username, user)
+                                        .map(this::profileResponse))));
   }
 
-  private ResponseEntity profileResponse(ProfileData profile) {
-    return ResponseEntity.ok(
-        new HashMap<String, Object>() {
-          {
-            put("profile", profile);
-          }
-        });
+  private Map<String, Object> profileResponse(ProfileData profile) {
+    Map<String, Object> response = new HashMap<>();
+    response.put("profile", profile);
+    return response;
   }
 }

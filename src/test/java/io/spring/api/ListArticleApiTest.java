@@ -1,12 +1,10 @@
 package io.spring.api;
 
-import static io.restassured.module.mockmvc.RestAssuredMockMvc.given;
 import static io.spring.TestHelper.articleDataFixture;
 import static java.util.Arrays.asList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
-import io.restassured.module.mockmvc.RestAssuredMockMvc;
 import io.spring.JacksonCustomizations;
 import io.spring.api.security.WebSecurityConfig;
 import io.spring.application.ArticleQueryService;
@@ -17,12 +15,13 @@ import io.spring.core.article.ArticleRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
-import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.reactive.server.WebTestClient;
+import reactor.core.publisher.Mono;
 
-@WebMvcTest(ArticlesApi.class)
+@WebFluxTest(ArticlesApi.class)
 @Import({WebSecurityConfig.class, JacksonCustomizations.class})
 public class ListArticleApiTest extends TestWithCurrentUser {
   @MockBean private ArticleRepository articleRepository;
@@ -31,13 +30,12 @@ public class ListArticleApiTest extends TestWithCurrentUser {
 
   @MockBean private ArticleCommandService articleCommandService;
 
-  @Autowired private MockMvc mvc;
+  @Autowired private WebTestClient client;
 
   @Override
   @BeforeEach
   public void setUp() throws Exception {
     super.setUp();
-    RestAssuredMockMvc.mockMvc(mvc);
   }
 
   @Test
@@ -47,13 +45,13 @@ public class ListArticleApiTest extends TestWithCurrentUser {
             asList(articleDataFixture("1", user), articleDataFixture("2", user)), 2);
     when(articleQueryService.findRecentArticles(
             eq(null), eq(null), eq(null), eq(new Page(0, 20)), eq(null)))
-        .thenReturn(articleDataList);
-    RestAssuredMockMvc.when().get("/articles").prettyPeek().then().statusCode(200);
+        .thenReturn(Mono.just(articleDataList));
+    client.get().uri("/articles").exchange().expectStatus().isOk();
   }
 
   @Test
   public void should_get_feeds_401_without_login() throws Exception {
-    RestAssuredMockMvc.when().get("/articles/feed").prettyPeek().then().statusCode(401);
+    client.get().uri("/articles/feed").exchange().expectStatus().isUnauthorized();
   }
 
   @Test
@@ -62,14 +60,14 @@ public class ListArticleApiTest extends TestWithCurrentUser {
         new ArticleDataList(
             asList(articleDataFixture("1", user), articleDataFixture("2", user)), 2);
     when(articleQueryService.findUserFeed(eq(user), eq(new Page(0, 20))))
-        .thenReturn(articleDataList);
+        .thenReturn(Mono.just(articleDataList));
 
-    given()
+    client
+        .get()
+        .uri("/articles/feed")
         .header("Authorization", "Token " + token)
-        .when()
-        .get("/articles/feed")
-        .prettyPeek()
-        .then()
-        .statusCode(200);
+        .exchange()
+        .expectStatus()
+        .isOk();
   }
 }
