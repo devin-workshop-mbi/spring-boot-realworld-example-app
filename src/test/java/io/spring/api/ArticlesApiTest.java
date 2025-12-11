@@ -12,10 +12,13 @@ import io.restassured.module.mockmvc.RestAssuredMockMvc;
 import io.spring.JacksonCustomizations;
 import io.spring.api.security.WebSecurityConfig;
 import io.spring.application.ArticleQueryService;
+import io.spring.application.Page;
 import io.spring.application.article.ArticleCommandService;
 import io.spring.application.data.ArticleData;
+import io.spring.application.data.ArticleDataList;
 import io.spring.application.data.ProfileData;
 import io.spring.core.article.Article;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -151,6 +154,106 @@ public class ArticlesApiTest extends TestWithCurrentUser {
         .prettyPeek()
         .then()
         .statusCode(422);
+  }
+
+  @Test
+  public void should_get_top_articles_success() {
+    ArticleData article1 =
+        new ArticleData(
+            "1",
+            "top-article-1",
+            "Top Article 1",
+            "Most favorited",
+            "Content 1",
+            false,
+            10,
+            new DateTime(),
+            new DateTime(),
+            asList("tag1"),
+            new ProfileData("userid1", "author1", "bio1", "image1", false));
+
+    ArticleData article2 =
+        new ArticleData(
+            "2",
+            "top-article-2",
+            "Top Article 2",
+            "Second most favorited",
+            "Content 2",
+            false,
+            5,
+            new DateTime(),
+            new DateTime(),
+            asList("tag2"),
+            new ProfileData("userid2", "author2", "bio2", "image2", false));
+
+    List<ArticleData> articles = asList(article1, article2);
+    ArticleDataList articleDataList = new ArticleDataList(articles, 2);
+
+    when(articleQueryService.findTopArticles(any(Page.class), any())).thenReturn(articleDataList);
+
+    given()
+        .contentType("application/json")
+        .when()
+        .get("/articles/top")
+        .then()
+        .statusCode(200)
+        .body("articlesCount", equalTo(2))
+        .body("articles[0].title", equalTo("Top Article 1"))
+        .body("articles[0].favoritesCount", equalTo(10))
+        .body("articles[1].title", equalTo("Top Article 2"))
+        .body("articles[1].favoritesCount", equalTo(5));
+  }
+
+  @Test
+  public void should_get_top_articles_with_pagination() {
+    List<ArticleData> articles = new ArrayList<>();
+    ArticleDataList articleDataList = new ArticleDataList(articles, 0);
+
+    when(articleQueryService.findTopArticles(any(Page.class), any())).thenReturn(articleDataList);
+
+    given()
+        .contentType("application/json")
+        .param("limit", "5")
+        .param("offset", "0")
+        .when()
+        .get("/articles/top")
+        .then()
+        .statusCode(200)
+        .body("articlesCount", equalTo(0));
+  }
+
+  @Test
+  public void should_get_top_articles_with_authentication() {
+    ArticleData article1 =
+        new ArticleData(
+            "1",
+            "top-article-1",
+            "Top Article 1",
+            "Most favorited",
+            "Content 1",
+            true,
+            10,
+            new DateTime(),
+            new DateTime(),
+            asList("tag1"),
+            new ProfileData("userid1", "author1", "bio1", "image1", true));
+
+    List<ArticleData> articles = asList(article1);
+    ArticleDataList articleDataList = new ArticleDataList(articles, 1);
+
+    when(articleQueryService.findTopArticles(any(Page.class), eq(user)))
+        .thenReturn(articleDataList);
+
+    given()
+        .contentType("application/json")
+        .header("Authorization", "Token " + token)
+        .when()
+        .get("/articles/top")
+        .then()
+        .statusCode(200)
+        .body("articlesCount", equalTo(1))
+        .body("articles[0].favorited", equalTo(true))
+        .body("articles[0].author.following", equalTo(true));
   }
 
   private HashMap<String, Object> prepareParam(
