@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="io.spring.infrastructure.mybatis.mapper.ServiceTypeMapper">
+    <insert id="insert">
+        insert into service_types (id, name, description, estimated_duration_minutes, price, created_at) values(
+          #{serviceType.id},
+          #{serviceType.name},
+          #{serviceType.description},
+          #{serviceType.estimatedDurationMinutes},
+          #{serviceType.price},
+          #{serviceType.createdAt}
+        )
+    </insert>
+    <select id="findById" resultMap="serviceType">
+        select id, name, description, estimated_duration_minutes, price, created_at
+        from service_types where id = #{id}
+    </select>
+    <select id="findAll" resultMap="serviceType">
+        select id, name, description, estimated_duration_minutes, price, created_at
+        from service_types
+    </select>
+
+    <resultMap id="serviceType" type="io.spring.core.servicetype.ServiceType">
+        <id column="id" property="id"/>
+        <result column="name" property="name"/>
+        <result column="description" property="description"/>
+        <result column="estimated_duration_minutes" property="estimatedDurationMinutes"/>
+        <result column="price" property="price"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+</mapper>
