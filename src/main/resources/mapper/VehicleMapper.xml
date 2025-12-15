@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="io.spring.infrastructure.mybatis.mapper.VehicleMapper">
+    <insert id="insert">
+        insert into vehicles (id, user_id, make, model, year, license_plate, vin, created_at, updated_at) values(
+          #{vehicle.id},
+          #{vehicle.userId},
+          #{vehicle.make},
+          #{vehicle.model},
+          #{vehicle.year},
+          #{vehicle.licensePlate},
+          #{vehicle.vin},
+          #{vehicle.createdAt},
+          #{vehicle.updatedAt}
+        )
+    </insert>
+    <update id="update">
+        update vehicles
+          <set>
+              <if test="vehicle.make != null and vehicle.make != ''">make = #{vehicle.make},</if>
+              <if test="vehicle.model != null and vehicle.model != ''">model = #{vehicle.model},</if>
+              <if test="vehicle.year != null and vehicle.year > 0">year = #{vehicle.year},</if>
+              <if test="vehicle.licensePlate != null">license_plate = #{vehicle.licensePlate},</if>
+              <if test="vehicle.vin != null">vin = #{vehicle.vin},</if>
+              updated_at = #{vehicle.updatedAt}
+          </set>
+        where id = #{vehicle.id}
+    </update>
+    <delete id="delete">
+        delete from vehicles where id = #{id}
+    </delete>
+    <select id="findById" resultMap="vehicle">
+        select id, user_id, make, model, year, license_plate, vin, created_at, updated_at
+        from vehicles where id = #{id}
+    </select>
+    <select id="findByUserId" resultMap="vehicle">
+        select id, user_id, make, model, year, license_plate, vin, created_at, updated_at
+        from vehicles where user_id = #{userId}
+    </select>
+
+    <resultMap id="vehicle" type="io.spring.core.vehicle.Vehicle">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="make" property="make"/>
+        <result column="model" property="model"/>
+        <result column="year" property="year"/>
+        <result column="license_plate" property="licensePlate"/>
+        <result column="vin" property="vin"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+</mapper>
